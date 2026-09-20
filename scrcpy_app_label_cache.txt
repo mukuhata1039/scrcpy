@@ -1,0 +1,4 @@
+app.shinagawa.listentonovels.androidApp	小説を聞こう - Web小説の読み上げ
+com.audible.application	Audible (オーディブル)
+com.google.android.dialer	Google の電話アプリ - 発信者番号と迷惑電話対策
+jp.co.yahoo.android.weather.type1	Yahoo!天気 - 雨雲や台風の接近がわかる天気予報アプリ

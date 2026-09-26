@@ -1,33 +1,39 @@
-﻿#Requires AutoHotkey v2.0
+#Requires AutoHotkey v2.0
 #SingleInstance Force
 
-SCRCPY_LAUNCHER := "E:\app\scrcpy-win64-v3.3.1\scrcpy_audible_launcher.exe"
-ADB_EXE := "E:\app\scrcpy-win64-v3.3.1\adb.exe"
+; The scrcpy launcher starts with --turn-screen-off.
+lastScrcpyPid := 0
+phoneScreenOff := true
 
-; Existing shortcuts
-^!v::Run '"' SCRCPY_LAUNCHER '"'
-^!b::Run "E:\app\multimonitortool-x64\dual\dual.vbs"
-^!m::Run "E:\app\multimonitortool-x64\single\single.vbs"
-^!n::Run "E:\app\multimonitortool-x64\single2\single2.vbs"
-^!x::Run "E:\app\ComfyUI_windows_portable_nvidia\ComfyUI_windows_portable\start_comfyui.bat"
-
-; Only while the real scrcpy mirror window is foreground:
-; Ctrl+Tab -> Android APP_SWITCH
-; Space    -> Android MEDIA_PLAY_PAUSE
 #HotIf WinActive("ahk_exe scrcpy.exe")
 
-^Tab::
+; On the first press, turn the physical phone screen on.
+; Subsequent presses alternate on/off.
+$!o::
 {
-    global ADB_EXE
-    RunWait '"' ADB_EXE '" shell input keyevent 187', , "Hide"
-    KeyWait "Tab"
+    global lastScrcpyPid, phoneScreenOff
+
+    currentPid := WinGetPID("A")
+    if (currentPid != lastScrcpyPid) {
+        lastScrcpyPid := currentPid
+        phoneScreenOff := true
+    }
+
+    if (phoneScreenOff)
+        SendInput "{Blind}{Shift down}o{Shift up}"
+    else
+        SendInput "{Blind}o"
+
+    phoneScreenOff := !phoneScreenOff
+    KeyWait "o"
 }
 
-$Space::
+; Keep the toggle in sync if the original screen-on shortcut is used.
+~!+o::
 {
-    global ADB_EXE
-    RunWait '"' ADB_EXE '" shell input keyevent 85', , "Hide"
-    KeyWait "Space"
+    global lastScrcpyPid, phoneScreenOff
+    lastScrcpyPid := WinGetPID("A")
+    phoneScreenOff := false
 }
 
 #HotIf

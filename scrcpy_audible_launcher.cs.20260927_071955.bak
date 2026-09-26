@@ -154,17 +154,6 @@ internal static class Program
             })
         );
 
-        string startupMainMonitor = TryLoadMainMonitor(mainMonitorPath);
-        if (string.IsNullOrEmpty(startupMainMonitor) &&
-            GetSystemMetrics(SM_CMONITORS) >= 2)
-        {
-            startupMainMonitor = GetCurrentPrimaryMonitorDevice();
-        }
-
-        bool mainActiveAtLaunch =
-            !string.IsNullOrEmpty(startupMainMonitor) &&
-            IsMonitorDeviceActive(startupMainMonitor);
-
         string options =
             "--max-size=1100 " +
             "--turn-screen-off " +
@@ -190,13 +179,6 @@ internal static class Program
             options +=
                 " --window-width=" + savedWidth +
                 " --window-height=" + savedHeight;
-
-            if (mainActiveAtLaunch)
-            {
-                options +=
-                    " --window-x=" + savedX +
-                    " --window-y=" + savedY;
-            }
         }
         else
         {

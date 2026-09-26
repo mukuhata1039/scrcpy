@@ -1,38 +1,32 @@
 ﻿#Requires AutoHotkey v2.0
 #SingleInstance Force
 
-; =========================================================
+SCRCPY_LAUNCHER := "E:\app\scrcpy-win64-v3.3.1\scrcpy_audible_launcher.exe"
+ADB_EXE := "E:\app\scrcpy-win64-v3.3.1\adb.exe"
+
 ; Existing shortcuts
-; =========================================================
-
-^!v::Run "E:\app\scrcpy-win64-v3.3.1\scrcpy_audible.vbs"
-
+^!v::Run '"' SCRCPY_LAUNCHER '"'
 ^!b::Run "E:\app\multimonitortool-x64\dual\dual.vbs"
-
 ^!m::Run "E:\app\multimonitortool-x64\single\single.vbs"
-
 ^!n::Run "E:\app\multimonitortool-x64\single2\single2.vbs"
-
 ^!x::Run "E:\app\ComfyUI_windows_portable_nvidia\ComfyUI_windows_portable\start_comfyui.bat"
 
-
-; =========================================================
-; scrcpy is foreground:
-; Space -> hidden bridge -> persistent ADB shell -> Android
-; =========================================================
-
-global SCRCPY_SPACE_COMMAND := A_Temp "\scrcpy_audible_space_command.txt"
-
+; Only while the real scrcpy mirror window is foreground:
+; Ctrl+Tab -> Android APP_SWITCH
+; Space    -> Android MEDIA_PLAY_PAUSE
 #HotIf WinActive("ahk_exe scrcpy.exe")
+
+^Tab::
+{
+    global ADB_EXE
+    RunWait '"' ADB_EXE '" shell input keyevent 187', , "Hide"
+    KeyWait "Tab"
+}
 
 $Space::
 {
-    global SCRCPY_SPACE_COMMAND
-
-    ; This only writes one tiny line.
-    ; It does NOT start adb.exe, cmd.exe, or any black console window.
-    try FileAppend("1`n", SCRCPY_SPACE_COMMAND, "UTF-8")
-
+    global ADB_EXE
+    RunWait '"' ADB_EXE '" shell input keyevent 85', , "Hide"
     KeyWait "Space"
 }
 

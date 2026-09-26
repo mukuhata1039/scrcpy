@@ -1,4 +1,7 @@
 app.shinagawa.listentonovels.androidApp	小説を聞こう - Web小説の読み上げ
+com.arlosoft.macrodroid	MacroDroid - デバイス自動化
 com.audible.application	Audible (オーディブル)
 com.google.android.dialer	Google の電話アプリ - 発信者番号と迷惑電話対策
+com.google.android.googlequicksearchbox	Google
+jp.co.netbk	ドコモの銀行 ドコモSMTBネット銀行（旧 住信SBI）
 jp.co.yahoo.android.weather.type1	Yahoo!天気 - 雨雲や台風の接近がわかる天気予報アプリ

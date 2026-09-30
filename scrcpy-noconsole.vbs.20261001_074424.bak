@@ -1,0 +1,19 @@
+﻿strCommand = "cmd /c scrcpy.exe"
+
+For Each Arg In WScript.Arguments
+    strCommand = strCommand & " """ & replace(Arg, """", """""""""") & """"
+Next
+
+Set shell = CreateObject("Wscript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+' Keep the original scrcpy launch behavior exactly as it was.
+shell.Run strCommand, 0, false
+
+' Start the independent AHK-free Space helper.
+baseDir = fso.GetParentFolderName(WScript.ScriptFullName)
+helperPath = baseDir & "\scrcpy_space_hotkey.exe"
+
+If fso.FileExists(helperPath) Then
+    shell.Run """" & helperPath & """", 0, false
+End If

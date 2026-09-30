@@ -1,0 +1,17 @@
+﻿Set shell = CreateObject("Wscript.Shell")
+Set fso = CreateObject("Scripting.FileSystemObject")
+
+baseDir = fso.GetParentFolderName(WScript.ScriptFullName)
+shell.CurrentDirectory = baseDir
+
+' Start the AHK-free Space helper hidden.
+shell.Run """" & baseDir & "\scrcpy_space_hotkey.exe""", 0, False
+
+' Start scrcpy hidden, preserving every argument supplied by the existing launcher.
+strCommand = """" & baseDir & "\scrcpy.exe"""
+
+For Each Arg In WScript.Arguments
+    strCommand = strCommand & " """ & Replace(Arg, """", """""""""") & """"
+Next
+
+shell.Run strCommand, 0, False

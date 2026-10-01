@@ -20,6 +20,15 @@ internal static class Program
     private const uint LR_LOADFROMFILE = 0x0010;
     private const uint SW_SHOWNORMAL = 1;
 
+    // AHK-free Space -> Android MEDIA_PLAY_PAUSE.
+    // Registered only while scrcpy.exe is the foreground application.
+    private const uint WM_HOTKEY = 0x0312;
+    private const uint PM_REMOVE = 0x0001;
+    private const uint MOD_NOREPEAT = 0x4000;
+    private const uint VK_SPACE = 0x20;
+    private const int SPACE_HOTKEY_ID = 0x5343;
+
+
     // Windows 11 DWM title-bar customization.
     private const int DWMWA_USE_IMMERSIVE_DARK_MODE = 20;
     private const int DWMWA_BORDER_COLOR = 34;
@@ -117,10 +126,123 @@ internal static class Program
         }
     }
 
+    private static void RunSpaceHotkeyPump(
+        int scrcpyPid,
+        ManualResetEvent stopEvent)
+    {
+        string commandPath = Path.Combine(
+            Path.GetTempPath(),
+            "scrcpy_audible_space_command.txt"
+        );
+
+        bool registered = false;
+
+        // RegisterHotKey(NULL, ...) posts WM_HOTKEY to this thread.
+        // Ensure the thread has a message queue first.
+        MSG ignored;
+        PeekMessageW(
+            out ignored,
+            IntPtr.Zero,
+            0,
+            0,
+            0
+        );
+
+        try
+        {
+            while (!stopEvent.WaitOne(10))
+            {
+                bool foreground = IsForegroundProcess(scrcpyPid);
+
+                if (foreground && !registered)
+                {
+                    registered = RegisterHotKey(
+                        IntPtr.Zero,
+                        SPACE_HOTKEY_ID,
+                        MOD_NOREPEAT,
+                        VK_SPACE
+                    );
+                }
+                else if (!foreground && registered)
+                {
+                    UnregisterHotKey(
+                        IntPtr.Zero,
+                        SPACE_HOTKEY_ID
+                    );
+                    registered = false;
+                }
+
+                MSG msg;
+
+                while (PeekMessageW(
+                    out msg,
+                    IntPtr.Zero,
+                    WM_HOTKEY,
+                    WM_HOTKEY,
+                    PM_REMOVE))
+                {
+                    if (msg.message == WM_HOTKEY &&
+                        msg.wParam.ToUInt64() ==
+                            (ulong)SPACE_HOTKEY_ID &&
+                        IsForegroundProcess(scrcpyPid))
+                    {
+                        QueueAndroidPlayPause(commandPath);
+                    }
+                }
+            }
+        }
+        finally
+        {
+            if (registered)
+            {
+                UnregisterHotKey(
+                    IntPtr.Zero,
+                    SPACE_HOTKEY_ID
+                );
+            }
+        }
+    }
+
+    private static bool IsForegroundProcess(int processId)
+    {
+        IntPtr hwnd = GetForegroundWindow();
+
+        if (hwnd == IntPtr.Zero)
+            return false;
+
+        uint pid;
+
+        GetWindowThreadProcessId(
+            hwnd,
+            out pid
+        );
+
+        return pid == (uint)processId;
+    }
+
+    private static void QueueAndroidPlayPause(
+        string commandPath)
+    {
+        try
+        {
+            // Existing Python bridge converts each "1" into
+            // Android KEYCODE_MEDIA_PLAY_PAUSE (85).
+            File.AppendAllText(
+                commandPath,
+                "1\n",
+                Encoding.ASCII
+            );
+        }
+        catch
+        {
+            // Media control must never stop scrcpy itself.
+        }
+    }
+
+
     private static int RunScrcpy(string baseDir, string iconPath)
     {
         string scrcpyExe = Path.Combine(baseDir, "scrcpy.exe");
-        string noConsoleVbs = Path.Combine(baseDir, "scrcpy-noconsole.vbs");
         string bridgePy = Path.Combine(baseDir, "scrcpy_media_bridge.py");
         string windowStatePath = Path.Combine(baseDir, "scrcpy_window_state_v5.txt");
         string mainMonitorPath = Path.Combine(baseDir, "scrcpy_main_monitor.txt");
@@ -132,9 +254,6 @@ internal static class Program
         if (!File.Exists(scrcpyExe))
             throw new FileNotFoundException("scrcpy.exe が見つかりません。", scrcpyExe);
 
-        if (!File.Exists(noConsoleVbs))
-            throw new FileNotFoundException("scrcpy-noconsole.vbs が見つかりません。", noConsoleVbs);
-
         if (!File.Exists(bridgePy))
             throw new FileNotFoundException("scrcpy_media_bridge.py が見つかりません。", bridgePy);
 
@@ -145,14 +264,6 @@ internal static class Program
         // immediately without querying Android or Google Play again.
         Dictionary<string, string> appLabelCache =
             LoadPersistentAppLabelCache(appLabelCachePath);
-
-        var before = new HashSet<int>(
-            Process.GetProcessesByName("scrcpy").Select(p =>
-            {
-                try { return p.Id; }
-                finally { p.Dispose(); }
-            })
-        );
 
         string startupMainMonitor = TryLoadMainMonitor(mainMonitorPath);
         if (string.IsNullOrEmpty(startupMainMonitor) &&
@@ -206,23 +317,37 @@ internal static class Program
                 " --window-y=100";
         }
 
-        var vbsStart = new ProcessStartInfo
+        // Start scrcpy.exe directly from this launcher.
+        // No VBScript/wscript.exe intermediary is used.
+        var scrcpyStart = new ProcessStartInfo
         {
-            FileName = "wscript.exe",
-            Arguments = "//B //Nologo \"" + noConsoleVbs + "\" " + options,
+            FileName = scrcpyExe,
+            Arguments = options,
             WorkingDirectory = baseDir,
             UseShellExecute = false,
             CreateNoWindow = true,
             WindowStyle = ProcessWindowStyle.Hidden
         };
 
-        Process.Start(vbsStart);
-
-        Process scrcpy = WaitForNewScrcpy(before, TimeSpan.FromSeconds(15));
+        Process scrcpy = Process.Start(scrcpyStart);
         if (scrcpy == null)
-            throw new InvalidOperationException("scrcpy.exe の起動を確認できませんでした。");
+            throw new InvalidOperationException("scrcpy.exe を起動できませんでした。");
 
         int scrcpyPid = scrcpy.Id;
+
+        // Keep Space handling in this launcher process.
+        // No AutoHotkey and no helper EXE are needed.
+        var spaceHotkeyStop = new ManualResetEvent(false);
+        var spaceHotkeyThread = new Thread(
+            () => RunSpaceHotkeyPump(
+                scrcpyPid,
+                spaceHotkeyStop
+            )
+        );
+        spaceHotkeyThread.IsBackground = true;
+        spaceHotkeyThread.Name =
+            "scrcpy Audible Space Hotkey";
+        spaceHotkeyThread.Start();
         IntPtr lastHwnd = IntPtr.Zero;
         DateTime iconRefreshUntil = DateTime.UtcNow.AddSeconds(12);
         int lastWindowX = 0;
@@ -495,6 +620,12 @@ internal static class Program
         }
         finally
         {
+            spaceHotkeyStop.Set();
+
+            if (spaceHotkeyThread.IsAlive)
+                spaceHotkeyThread.Join(1000);
+
+            spaceHotkeyStop.Dispose();
             scrcpy.Dispose();
         }
     }
@@ -1829,6 +1960,35 @@ internal static class Program
     );
 
     [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool RegisterHotKey(
+        IntPtr hWnd,
+        int id,
+        uint fsModifiers,
+        uint vk
+    );
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool UnregisterHotKey(
+        IntPtr hWnd,
+        int id
+    );
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PeekMessageW(
+        out MSG lpMsg,
+        IntPtr hWnd,
+        uint wMsgFilterMin,
+        uint wMsgFilterMax,
+        uint wRemoveMsg
+    );
+
+    [DllImport("user32.dll")]
     private static extern int GetSystemMetrics(int nIndex);
 
     [DllImport("user32.dll")]
@@ -1959,6 +2119,18 @@ internal static class Program
     {
         public int X;
         public int Y;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public UIntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public POINT pt;
+        public uint lPrivate;
     }
 
     [StructLayout(LayoutKind.Sequential)]

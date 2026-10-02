@@ -1,6 +1,6 @@
 --- a/app/src/input_manager.h
 +++ b/app/src/input_manager.h
-@@ -29,6 +29,8 @@
+@@ -31,6 +31,8 @@
      bool clipboard_autosync;
  
      uint16_t sdl_shortcut_mods;
@@ -11,7 +11,7 @@
      bool vfinger_invert_x;
 --- a/app/src/input_manager.c
 +++ b/app/src/input_manager.c
-@@ -34,6 +34,8 @@
+@@ -35,6 +35,8 @@
      im->clipboard_autosync = params->clipboard_autosync;
  
      im->sdl_shortcut_mods = sc_shortcut_mods_to_sdl(params->shortcut_mods);
@@ -20,7 +20,7 @@
  
      im->vfinger_down = false;
      im->vfinger_invert_x = false;
-@@ -216,6 +218,8 @@
+@@ -219,6 +221,8 @@
  
      if (!sc_controller_push_msg(im->controller, &msg)) {
          LOGW("Could not request 'set screen power mode'");
@@ -29,15 +29,19 @@
      }
  }
  
-@@ -399,6 +403,23 @@
-         }
-     }
- 
-+    // Use the same Android app-switch action as MOD+s.
-+    // Complete the press on keydown so Ctrl and Tab release order is irrelevant.
+@@ -444,6 +448,24 @@
+             im->key_repeat = 0;
+             im->last_keycode = sdl_keycode;
+             im->last_mod = mod;
++        }
++    }
++
++    // Ctrl+Tab invokes the same Android action as MOD+s. Complete both
++    // key events on keydown so releasing Ctrl first does not leave a key held.
 +    if (sdl_keycode == SDLK_TAB) {
-+        if (down && ctrl && !shift && !(mod & (KMOD_ALT | KMOD_GUI))) {
-+            if (!repeat && im->kp && !paused) {
++        if (down && ctrl && !shift &&
++                !(mod & (SDL_KMOD_ALT | SDL_KMOD_GUI))) {
++            if (!repeat && im->kp && !paused && !disconnected) {
 +                action_app_switch(im, SC_ACTION_DOWN);
 +                action_app_switch(im, SC_ACTION_UP);
 +            }
@@ -47,24 +51,21 @@
 +        if (!down && im->ctrl_tab_down) {
 +            im->ctrl_tab_down = false;
 +            return;
-+        }
-+    }
-+
-     if (is_shortcut) {
-         enum sc_action action = down ? SC_ACTION_DOWN : SC_ACTION_UP;
-         switch (sdl_keycode) {
-@@ -430,7 +451,7 @@
-                 return;
-             case SDLK_o:
-                 if (control && !repeat && down && !paused) {
--                    bool on = shift;
-+                    bool on = shift || !im->display_power_on;
-                     set_display_power(im, on);
-                 }
-                 return;
+         }
+     }
+ 
+@@ -582,7 +604,7 @@
+                     return;
+                 case SDLK_O:
+                     if (control && !repeat && down && !paused) {
+-                        bool on = shift;
++                        bool on = shift || !im->display_power_on;
+                         set_display_power(im, on);
+                     }
+                     return;
 --- a/app/src/scrcpy.c
 +++ b/app/src/scrcpy.c
-@@ -896,6 +896,8 @@
+@@ -855,6 +855,8 @@
  
          if (!sc_controller_push_msg(&s->controller, &msg)) {
              LOGW("Could not request 'set display power'");

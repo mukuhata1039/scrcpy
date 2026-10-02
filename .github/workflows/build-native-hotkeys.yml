@@ -1,4 +1,4 @@
-name: Build scrcpy 3.3.1 native hotkeys
+name: Build scrcpy 4.1 native hotkeys
 
 on:
   workflow_dispatch:
@@ -7,7 +7,7 @@ on:
       - review/scrcpy-local-20261002-084544
     paths:
       - .github/workflows/build-native-hotkeys.yml
-      - patches/scrcpy-v3.3.1-native-hotkeys.patch
+      - patches/scrcpy-v4.1-native-hotkeys.patch
 
 jobs:
   win64:
@@ -17,14 +17,14 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: Genymobile/scrcpy
-          ref: v3.3.1
+          ref: v4.1
           path: upstream
           persist-credentials: false
       - name: Apply native input patch
         run: |
           cd upstream
-          git apply --check ../patches/scrcpy-v3.3.1-native-hotkeys.patch
-          git apply ../patches/scrcpy-v3.3.1-native-hotkeys.patch
+          git apply --check ../patches/scrcpy-v4.1-native-hotkeys.patch
+          git apply ../patches/scrcpy-v4.1-native-hotkeys.patch
       - name: Install Windows cross compiler dependencies
         run: |
           sudo apt-get update
@@ -34,12 +34,12 @@ jobs:
             mingw-w64 mingw-w64-tools libz-mingw-w64-dev
       - name: Reuse adb bundled in this repository
         run: |
-          mkdir -p upstream/app/deps/work/sources/platform-tools-36.0.0-windows
-          cp adb.exe AdbWinApi.dll AdbWinUsbApi.dll upstream/app/deps/work/sources/platform-tools-36.0.0-windows/
+          mkdir -p upstream/app/deps/work/sources/platform-tools-37.0.0-windows
+          cp adb.exe AdbWinApi.dll AdbWinUsbApi.dll upstream/app/deps/work/sources/platform-tools-37.0.0-windows/
       - name: Build win64 client and matching DLLs
         run: cd upstream && release/build_windows.sh 64
       - uses: actions/upload-artifact@v4
         with:
-          name: scrcpy-win64-native-hotkeys
+          name: scrcpy-win64-v4.1-native-hotkeys
           path: upstream/release/work/build-win64/dist/
           if-no-files-found: error

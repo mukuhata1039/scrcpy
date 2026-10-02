@@ -32,6 +32,10 @@ jobs:
             libsdl2-dev libavcodec-dev libavdevice-dev libavformat-dev \
             libavutil-dev libswresample-dev libusb-1.0-0 libusb-1.0-0-dev \
             mingw-w64 mingw-w64-tools libz-mingw-w64-dev
+      - name: Reuse adb bundled in this repository
+        run: |
+          mkdir -p upstream/app/deps/work/sources/platform-tools-36.0.0-windows
+          cp adb.exe AdbWinApi.dll AdbWinUsbApi.dll upstream/app/deps/work/sources/platform-tools-36.0.0-windows/
       - name: Build win64 client and matching DLLs
         run: cd upstream && release/build_windows.sh 64
       - uses: actions/upload-artifact@v4

@@ -1,0 +1,75 @@
+--- a/app/src/input_manager.h
++++ b/app/src/input_manager.h
+@@ -29,6 +29,8 @@
+     bool clipboard_autosync;
+ 
+     uint16_t sdl_shortcut_mods;
++    bool display_power_on;
++    bool ctrl_tab_down;
+ 
+     bool vfinger_down;
+     bool vfinger_invert_x;
+--- a/app/src/input_manager.c
++++ b/app/src/input_manager.c
+@@ -34,6 +34,8 @@
+     im->clipboard_autosync = params->clipboard_autosync;
+ 
+     im->sdl_shortcut_mods = sc_shortcut_mods_to_sdl(params->shortcut_mods);
++    im->display_power_on = true;
++    im->ctrl_tab_down = false;
+ 
+     im->vfinger_down = false;
+     im->vfinger_invert_x = false;
+@@ -216,6 +218,8 @@
+ 
+     if (!sc_controller_push_msg(im->controller, &msg)) {
+         LOGW("Could not request 'set screen power mode'");
++    } else {
++        im->display_power_on = on;
+     }
+ }
+ 
+@@ -399,6 +403,23 @@
+         }
+     }
+ 
++    // Use the same Android app-switch action as MOD+s.
++    // Complete the press on keydown so Ctrl and Tab release order is irrelevant.
++    if (sdl_keycode == SDLK_TAB) {
++        if (down && ctrl && !shift && !(mod & (KMOD_ALT | KMOD_GUI))) {
++            if (!repeat && im->kp && !paused) {
++                action_app_switch(im, SC_ACTION_DOWN);
++                action_app_switch(im, SC_ACTION_UP);
++            }
++            im->ctrl_tab_down = true;
++            return;
++        }
++        if (!down && im->ctrl_tab_down) {
++            im->ctrl_tab_down = false;
++            return;
++        }
++    }
++
+     if (is_shortcut) {
+         enum sc_action action = down ? SC_ACTION_DOWN : SC_ACTION_UP;
+         switch (sdl_keycode) {
+@@ -430,7 +451,7 @@
+                 return;
+             case SDLK_o:
+                 if (control && !repeat && down && !paused) {
+-                    bool on = shift;
++                    bool on = shift || !im->display_power_on;
+                     set_display_power(im, on);
+                 }
+                 return;
+--- a/app/src/scrcpy.c
++++ b/app/src/scrcpy.c
+@@ -896,6 +896,8 @@
+ 
+         if (!sc_controller_push_msg(&s->controller, &msg)) {
+             LOGW("Could not request 'set display power'");
++        } else if (options->video) {
++            s->screen.im.display_power_on = false;
+         }
+     }
+ 

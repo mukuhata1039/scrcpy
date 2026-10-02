@@ -1,0 +1,41 @@
+name: Build scrcpy 3.3.1 native hotkeys
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - review/scrcpy-local-20261002-084544
+    paths:
+      - .github/workflows/build-native-hotkeys.yml
+      - patches/scrcpy-v3.3.1-native-hotkeys.patch
+
+jobs:
+  win64:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          repository: Genymobile/scrcpy
+          ref: v3.3.1
+          path: upstream
+          persist-credentials: false
+      - name: Apply native input patch
+        run: |
+          cd upstream
+          git apply --check ../patches/scrcpy-v3.3.1-native-hotkeys.patch
+          git apply ../patches/scrcpy-v3.3.1-native-hotkeys.patch
+      - name: Install Windows cross compiler dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build nasm ffmpeg libsdl2-2.0-0 \
+            libsdl2-dev libavcodec-dev libavdevice-dev libavformat-dev \
+            libavutil-dev libswresample-dev libusb-1.0-0 libusb-1.0-0-dev \
+            mingw-w64 mingw-w64-tools libz-mingw-w64-dev
+      - name: Build win64 client and matching DLLs
+        run: cd upstream && release/build_windows.sh 64
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scrcpy-win64-native-hotkeys
+          path: upstream/release/work/build-win64/dist/
+          if-no-files-found: error

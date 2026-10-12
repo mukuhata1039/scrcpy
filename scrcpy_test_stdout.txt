@@ -1,0 +1,7 @@
+scrcpy 4.1 <https://github.com/Genymobile/scrcpy>
+INFO: ADB device found:
+INFO:     -->   (usb)  a8879f0b                        device  CPH2353
+[server] INFO: Device: [OPPO] OPPO CPH2353 (Android 13)
+INFO: Renderer: direct3d11
+[server] INFO: Device display turned off
+INFO: Texture: 494x1100

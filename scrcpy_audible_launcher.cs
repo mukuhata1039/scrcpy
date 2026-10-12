@@ -63,6 +63,7 @@ internal static class Program
     {
         try
         {
+            Environment.SetEnvironmentVariable("ANDROID_SERIAL", "a8879f0b", EnvironmentVariableTarget.Process);
             SetCurrentProcessExplicitAppUserModelID(AppId);
 
             string baseDir = AppDomain.CurrentDomain.BaseDirectory.TrimEnd('\\');

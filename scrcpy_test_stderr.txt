@@ -1,0 +1,1 @@
+E:\app\scrcpy-win64-v3.3.1\scrcpy-server: 1 file pushed, 0 skipped. 26.0 MB/s (733706 bytes in 0.027s)

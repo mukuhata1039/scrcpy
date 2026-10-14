@@ -4,6 +4,9 @@ on:
   push:
     branches:
       - fix/oppo-launcher-adb-timeouts
+  pull_request:
+    branches:
+      - review/scrcpy-local-20261002-084544
   workflow_dispatch:
 
 jobs:

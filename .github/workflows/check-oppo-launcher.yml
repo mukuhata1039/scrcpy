@@ -1,0 +1,20 @@
+name: Check OPPO launcher build
+
+on:
+  push:
+    branches:
+      - fix/oppo-launcher-adb-timeouts
+  workflow_dispatch:
+
+jobs:
+  compile:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile launcher
+        shell: pwsh
+        run: |
+          $csc = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
+          & $csc /nologo /target:winexe /platform:anycpu /optimize+ /win32icon:scrcpy_audible.ico "/out:$env:RUNNER_TEMP/scrcpy_audible_launcher.exe" scrcpy_audible_launcher.cs
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path "$env:RUNNER_TEMP/scrcpy_audible_launcher.exe")) { throw 'Launcher EXE missing' }

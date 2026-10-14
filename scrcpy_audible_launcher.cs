@@ -951,73 +951,40 @@ internal static class Program
         string baseDir
     )
     {
-        string adbExe = Path.Combine(baseDir, "adb.exe");
+        string output = RunAdbCapture(
+            baseDir,
+            "shell dumpsys window",
+            2000
+        );
 
-        if (!File.Exists(adbExe))
+        if (string.IsNullOrEmpty(output))
             return null;
 
-        try
+        string[] lines = output.Replace("\r", "").Split('\n');
+
+        // Prefer the actual current focus line.
+        foreach (string line in lines)
         {
-            var psi = new ProcessStartInfo
+            if (line.IndexOf(
+                "mCurrentFocus",
+                StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                FileName = adbExe,
-                Arguments = "shell dumpsys window",
-                WorkingDirectory = baseDir,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-
-            using (Process p = Process.Start(psi))
-            {
-                if (p == null)
-                    return null;
-
-                string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(2000);
-
-                if (string.IsNullOrEmpty(output))
-                    return null;
-
-                string[] lines = output.Replace("\r", "")
-                    .Split('\n');
-
-                // Prefer the actual current focus line.
-                foreach (string line in lines)
-                {
-                    if (line.IndexOf(
-                        "mCurrentFocus",
-                        StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        string packageName =
-                            ExtractPackageFromWindowLine(line);
-
-                        if (!string.IsNullOrEmpty(packageName))
-                            return packageName;
-                    }
-                }
-
-                // Fallback used by some Android/OEM versions.
-                foreach (string line in lines)
-                {
-                    if (line.IndexOf(
-                        "mFocusedApp",
-                        StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        string packageName =
-                            ExtractPackageFromWindowLine(line);
-
-                        if (!string.IsNullOrEmpty(packageName))
-                            return packageName;
-                    }
-                }
+                string packageName = ExtractPackageFromWindowLine(line);
+                if (!string.IsNullOrEmpty(packageName))
+                    return packageName;
             }
         }
-        catch
+
+        foreach (string line in lines)
         {
-            // If ADB/device is temporarily unavailable, keep a safe fallback.
+            if (line.IndexOf(
+                "mFocusedApp",
+                StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                string packageName = ExtractPackageFromWindowLine(line);
+                if (!string.IsNullOrEmpty(packageName))
+                    return packageName;
+            }
         }
 
         return null;
@@ -1272,16 +1239,20 @@ internal static class Program
 
             string html;
 
-            using (var client = new WebClient())
-            {
-                client.Encoding = Encoding.UTF8;
-                client.Headers[HttpRequestHeader.UserAgent] =
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                    "AppleWebKit/537.36 Chrome/120 Safari/537.36";
-                client.Headers[HttpRequestHeader.AcceptLanguage] =
-                    "ja,en-US;q=0.8,en;q=0.6";
+            var request = (HttpWebRequest)WebRequest.Create(url);
+            request.Timeout = 5000;
+            request.ReadWriteTimeout = 5000;
+            request.UserAgent =
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                "AppleWebKit/537.36 Chrome/120 Safari/537.36";
+            request.Headers[HttpRequestHeader.AcceptLanguage] =
+                "ja,en-US;q=0.8,en;q=0.6";
 
-                html = client.DownloadString(url);
+            using (var response = (HttpWebResponse)request.GetResponse())
+            using (var reader = new StreamReader(
+                response.GetResponseStream(), Encoding.UTF8))
+            {
+                html = reader.ReadToEnd();
             }
 
             if (string.IsNullOrWhiteSpace(html))
@@ -1419,14 +1390,24 @@ internal static class Program
                 if (p == null)
                     return null;
 
-                string stdout = p.StandardOutput.ReadToEnd();
-                string stderr = p.StandardError.ReadToEnd();
+                // Drain both pipes while waiting. ReadToEnd() before
+                // WaitForExit(timeoutMs) can block forever if ADB hangs.
+                var stdoutTask = p.StandardOutput.ReadToEndAsync();
+                var stderrTask = p.StandardError.ReadToEndAsync();
 
                 if (!p.WaitForExit(timeoutMs))
                 {
                     try { p.Kill(); } catch { }
                     return null;
                 }
+
+                if (!System.Threading.Tasks.Task.WaitAll(
+                    new System.Threading.Tasks.Task[] { stdoutTask, stderrTask },
+                    500))
+                    return null;
+
+                string stdout = stdoutTask.Result;
+                string stderr = stderrTask.Result;
 
                 if (!string.IsNullOrWhiteSpace(stdout))
                     return stdout.Trim();

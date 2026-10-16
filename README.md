@@ -10,7 +10,7 @@
 - `scrcpy_audible_launcher.exe`：現在のランチャー実行ファイル
 - `scrcpy_media_bridge.py`：再生操作を補助するプログラム
 - `scrcpy.exe` と同じ階層の DLL・`scrcpy-server`・`adb.exe`：scrcpy の実行に必要
-- `patches/scrcpy-v4.1-native-hotkeys.patch`：scrcpy 本体の Alt+A / Alt+Q / アプリ切り替え / Ctrl+W の変更
+- `patches/scrcpy-v4.1-native-hotkeys.patch`：scrcpy 本体のショートカットと、最初に表示する前の窓位置の補正
 - `.github/workflows/build-native-hotkeys.yml`：上記パッチから Windows 版をビルドする手順
 
 古い AHK 版や一度きりの修正スクリプトは `archive/` に保存しています。**通常の起動・更新には使いません。**

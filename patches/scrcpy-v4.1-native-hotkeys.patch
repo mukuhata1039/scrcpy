@@ -189,3 +189,43 @@ index f5b644a..2143804 100644
          }
      }
  
+diff --git a/app/src/screen.c b/app/src/screen.c
+index 05923ab..ea82eda 100644
+--- a/app/src/screen.c
++++ b/app/src/screen.c
+@@ -4,6 +4,10 @@
+ #include <string.h>
+ #include <SDL3/SDL.h>
+ 
++#if defined(SDL_PLATFORM_WIN32)
++#include <windows.h>
++#endif
++
+ #include "events.h"
+ #include "icon.h"
+ #include "options.h"
+@@ -760,6 +764,24 @@ sc_screen_show_initial_window(struct sc_screen *screen) {
+     sc_sdl_set_window_size(screen->window, window_size);
+     sc_sdl_set_window_position(screen->window, position);
+ 
++#if defined(SDL_PLATFORM_WIN32)
++    // The launcher persists the outer window coordinates. SDL's initial
++    // position places the client area at those coordinates on Windows, which
++    // leaves the title bar and resize border offset until the launcher moves
++    // the visible window. Correct the still-hidden HWND before its first show.
++    if (screen->req.x != SC_WINDOW_POSITION_UNDEFINED
++            && screen->req.y != SC_WINDOW_POSITION_UNDEFINED) {
++        HWND hwnd = (HWND) SDL_GetPointerProperty(
++            SDL_GetWindowProperties(screen->window),
++            SDL_PROP_WINDOW_WIN32_HWND_POINTER, NULL);
++        if (hwnd && !SetWindowPos(hwnd, NULL, screen->req.x, screen->req.y,
++                                  0, 0, SWP_NOSIZE | SWP_NOZORDER
++                                      | SWP_NOACTIVATE)) {
++            LOGW("Could not restore the initial outer window position");
++        }
++    }
++#endif
++
+     if (screen->req.fullscreen) {
+         sc_screen_toggle_fullscreen(screen);
+     }

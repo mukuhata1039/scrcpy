@@ -1,26 +1,54 @@
---- a/app/src/input_manager.h
-+++ b/app/src/input_manager.h
-@@ -31,6 +31,8 @@
-     bool clipboard_autosync;
- 
-     uint16_t sdl_shortcut_mods;
-+    bool display_power_on;
-+    bool ctrl_tab_down;
- 
-     bool vfinger_down;
-     bool vfinger_invert_x;
+diff --git a/app/src/input_manager.c b/app/src/input_manager.c
+index 3b12384..89edbce 100644
 --- a/app/src/input_manager.c
 +++ b/app/src/input_manager.c
-@@ -35,6 +35,8 @@
+@@ -35,6 +35,9 @@ sc_input_manager_init(struct sc_input_manager *im,
      im->clipboard_autosync = params->clipboard_autosync;
  
      im->sdl_shortcut_mods = sc_shortcut_mods_to_sdl(params->shortcut_mods);
 +    im->display_power_on = true;
 +    im->ctrl_tab_down = false;
++    im->android_alt_down = false;
  
      im->vfinger_down = false;
      im->vfinger_invert_x = false;
-@@ -219,6 +221,8 @@
+@@ -71,6 +74,35 @@ send_keycode(struct sc_input_manager *im, enum android_keycode keycode,
+     }
+ }
+ 
++// Android's recent-apps chooser understands Alt+Tab and Shift+Alt+Tab.
++// Keep the synthetic Android Alt pressed while PC Ctrl is held.
++static bool
++send_recent_apps_key(struct sc_input_manager *im,
++                     enum android_keycode keycode, enum sc_action action,
++                     uint32_t metastate) {
++    struct sc_control_msg msg;
++    msg.type = SC_CONTROL_MSG_TYPE_INJECT_KEYCODE;
++    msg.inject_keycode.action = action == SC_ACTION_DOWN
++                              ? AKEY_EVENT_ACTION_DOWN
++                              : AKEY_EVENT_ACTION_UP;
++    msg.inject_keycode.keycode = keycode;
++    msg.inject_keycode.metastate = metastate;
++    msg.inject_keycode.repeat = 0;
++    if (!sc_controller_push_msg(im->controller, &msg)) {
++        LOGW("Could not inject Android recent-apps key");
++        return false;
++    }
++    return true;
++}
++
++static void
++release_recent_apps_alt(struct sc_input_manager *im) {
++    if (im->android_alt_down) {
++        send_recent_apps_key(im, AKEYCODE_ALT_LEFT, SC_ACTION_UP, 0);
++        im->android_alt_down = false;
++    }
++}
++
+ static inline void
+ action_home(struct sc_input_manager *im, enum sc_action action) {
+     send_keycode(im, AKEYCODE_HOME, action, "HOME");
+@@ -219,6 +251,8 @@ set_display_power(struct sc_input_manager *im, bool on) {
  
      if (!sc_controller_push_msg(im->controller, &msg)) {
          LOGW("Could not request 'set screen power mode'");
@@ -29,21 +57,36 @@
      }
  }
  
-@@ -444,6 +448,24 @@
-             im->key_repeat = 0;
-             im->last_keycode = sdl_keycode;
-             im->last_mod = mod;
-+        }
+@@ -447,6 +481,42 @@ sc_input_manager_process_key(struct sc_input_manager *im,
+         }
+     }
+ 
++    // Finish selection on PC Ctrl release (Android Alt release). Tab releases
++    // may arrive later, so keep swallowing the matching Tab keyup below.
++    if (!down && (sdl_keycode == SDLK_LCTRL || sdl_keycode == SDLK_RCTRL)
++            && !(mod & SDL_KMOD_CTRL)) {
++        release_recent_apps_alt(im);
 +    }
 +
-+    // Ctrl+Tab invokes the same Android action as MOD+s. Complete both
-+    // key events on keydown so releasing Ctrl first does not leave a key held.
++    // PC Ctrl+Tab sends Android Alt+Tab; Shift reverses the direction.
++    // Android keeps its recent-apps chooser open until Alt is released.
 +    if (sdl_keycode == SDLK_TAB) {
-+        if (down && ctrl && !shift &&
++        if (down && ctrl &&
 +                !(mod & (SDL_KMOD_ALT | SDL_KMOD_GUI))) {
-+            if (!repeat && im->kp && !paused && !disconnected) {
-+                action_app_switch(im, SC_ACTION_DOWN);
-+                action_app_switch(im, SC_ACTION_UP);
++            if (!repeat && !im->ctrl_tab_down && im->kp && !paused
++                    && !disconnected && !im->camera) {
++                const uint32_t alt = AMETA_ALT_ON | AMETA_ALT_LEFT_ON;
++                if (!im->android_alt_down) {
++                    im->android_alt_down = send_recent_apps_key(im,
++                            AKEYCODE_ALT_LEFT, SC_ACTION_DOWN, alt);
++                }
++                if (im->android_alt_down) {
++                    uint32_t meta = alt | (shift ? AMETA_SHIFT_ON : 0);
++                    send_recent_apps_key(im, AKEYCODE_TAB, SC_ACTION_DOWN,
++                                         meta);
++                    send_recent_apps_key(im, AKEYCODE_TAB, SC_ACTION_UP,
++                                         meta);
++                }
 +            }
 +            im->ctrl_tab_down = true;
 +            return;
@@ -51,10 +94,13 @@
 +        if (!down && im->ctrl_tab_down) {
 +            im->ctrl_tab_down = false;
 +            return;
-         }
-     }
- 
-@@ -582,7 +604,7 @@
++        }
++    }
++
+     // Shortcuts that do not involve the MOD key
+     switch (sdl_keycode) {
+         case SDLK_F11:
+@@ -582,7 +652,7 @@ sc_input_manager_process_key(struct sc_input_manager *im,
                      return;
                  case SDLK_O:
                      if (control && !repeat && down && !paused) {
@@ -63,9 +109,35 @@
                          set_display_power(im, on);
                      }
                      return;
+@@ -1169,6 +1239,9 @@ void
+ sc_input_manager_handle_event(struct sc_input_manager *im,
+                               const SDL_Event *event) {
+     switch (event->type) {
++        case SDL_EVENT_WINDOW_FOCUS_LOST:
++            release_recent_apps_alt(im);
++            break;
+         case SDL_EVENT_TEXT_INPUT:
+             sc_input_manager_process_text_input(im, &event->text);
+             break;
+diff --git a/app/src/input_manager.h b/app/src/input_manager.h
+index c986cbc..a385753 100644
+--- a/app/src/input_manager.h
++++ b/app/src/input_manager.h
+@@ -31,6 +31,9 @@ struct sc_input_manager {
+     bool clipboard_autosync;
+ 
+     uint16_t sdl_shortcut_mods;
++    bool display_power_on;
++    bool ctrl_tab_down;
++    bool android_alt_down;
+ 
+     bool vfinger_down;
+     bool vfinger_invert_x;
+diff --git a/app/src/scrcpy.c b/app/src/scrcpy.c
+index f5b644a..2143804 100644
 --- a/app/src/scrcpy.c
 +++ b/app/src/scrcpy.c
-@@ -855,6 +855,8 @@
+@@ -855,6 +855,8 @@ aoa_complete:
  
          if (!sc_controller_push_msg(&s->controller, &msg)) {
              LOGW("Could not request 'set display power'");

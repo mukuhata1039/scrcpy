@@ -29,13 +29,13 @@ Alt+H を押すと OPPO 用の `scrcpy_audible_launcher.exe` が起動し、も�
 最初の一回だけ、GitHub から更新した後に PowerShell で次を実行します。Alt+H の待ち受けをすぐに開始し、次回以降の Windows ログイン時にも自動起動します。配置先はこれまでどおり E: で、C: にアプリを置く必要はありません。
 
 ```powershell
-& 'E:\\app\\scrcpy-win64-v3.3.1\\scrcpy_audible_launcher.exe' --install-alt-h
+& 'E:\app\scrcpy-win64-v3.3.1\scrcpy_audible_launcher.exe' --install-alt-h
 ```
 
 ランチャーの実行ファイルを今後更新するときは、先に scrcpy を閉じ、次のコマンドで Alt+H の待ち受けと自動起動を解除してから `git pull --ff-only` を実行します。更新後に上の `--install-alt-h` を再実行してください。
 
 ```powershell
-& 'E:\\app\\scrcpy-win64-v3.3.1\\scrcpy_audible_launcher.exe' --remove-alt-h
+& 'E:\app\scrcpy-win64-v3.3.1\scrcpy_audible_launcher.exe' --remove-alt-h
 ```
 
 ## GitHub から取り込む

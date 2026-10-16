@@ -22,6 +22,22 @@
 
 scrcpy のウィンドウ上で Ctrl を押しながら Tab で次のアプリ、Ctrl+Shift+Tab で前のアプリを選び、Ctrl を離すと切り替えます。選択中に Ctrl+W を押すと、選んでいるアプリを最近使ったアプリの一覧から閉じます。
 
+## Alt+H で scrcpy を起動・終了する
+
+Alt+H を押すと OPPO 用の `scrcpy_audible_launcher.exe` が起動し、もう一度押すと、そのランチャーが起動した scrcpy を通常終了します。Page など別の scrcpy は終了しません。従来のタスクバーアイコンも使えます。
+
+最初の一回だけ、GitHub から更新した後に PowerShell で次を実行します。Alt+H の待ち受けをすぐに開始し、次回以降の Windows ログイン時にも自動起動します。配置先はこれまでどおり E: で、C: にアプリを置く必要はありません。
+
+```powershell
+& 'E:\\app\\scrcpy-win64-v3.3.1\\scrcpy_audible_launcher.exe' --install-alt-h
+```
+
+ランチャーの実行ファイルを今後更新するときは、先に scrcpy を閉じ、次のコマンドで Alt+H の待ち受けと自動起動を解除してから `git pull --ff-only` を実行します。更新後に上の `--install-alt-h` を再実行してください。
+
+```powershell
+& 'E:\\app\\scrcpy-win64-v3.3.1\\scrcpy_audible_launcher.exe' --remove-alt-h
+```
+
 ## GitHub から取り込む
 
 現在の Windows 配置先は `E:\app\scrcpy-win64-v3.3.1` です。**C: ドライブは不要**で、この配置のままで使えます。

@@ -1,18 +1,19 @@
 diff --git a/app/src/input_manager.c b/app/src/input_manager.c
-index 3b12384..89edbce 100644
+index 3b12384..53096bb 100644
 --- a/app/src/input_manager.c
 +++ b/app/src/input_manager.c
-@@ -35,6 +35,9 @@ sc_input_manager_init(struct sc_input_manager *im,
+@@ -35,6 +35,10 @@ sc_input_manager_init(struct sc_input_manager *im,
      im->clipboard_autosync = params->clipboard_autosync;
  
      im->sdl_shortcut_mods = sc_shortcut_mods_to_sdl(params->shortcut_mods);
 +    im->display_power_on = true;
 +    im->ctrl_tab_down = false;
++    im->ctrl_w_down = false;
 +    im->android_alt_down = false;
  
      im->vfinger_down = false;
      im->vfinger_invert_x = false;
-@@ -71,6 +74,35 @@ send_keycode(struct sc_input_manager *im, enum android_keycode keycode,
+@@ -71,6 +75,35 @@ send_keycode(struct sc_input_manager *im, enum android_keycode keycode,
      }
  }
  
@@ -48,7 +49,7 @@ index 3b12384..89edbce 100644
  static inline void
  action_home(struct sc_input_manager *im, enum sc_action action) {
      send_keycode(im, AKEYCODE_HOME, action, "HOME");
-@@ -219,6 +251,8 @@ set_display_power(struct sc_input_manager *im, bool on) {
+@@ -219,6 +252,8 @@ set_display_power(struct sc_input_manager *im, bool on) {
  
      if (!sc_controller_push_msg(im->controller, &msg)) {
          LOGW("Could not request 'set screen power mode'");
@@ -57,7 +58,7 @@ index 3b12384..89edbce 100644
      }
  }
  
-@@ -447,6 +481,42 @@ sc_input_manager_process_key(struct sc_input_manager *im,
+@@ -447,6 +482,61 @@ sc_input_manager_process_key(struct sc_input_manager *im,
          }
      }
  
@@ -97,10 +98,29 @@ index 3b12384..89edbce 100644
 +        }
 +    }
 +
++    // While Android's recent-apps chooser is open, Ctrl+W dismisses the
++    // highlighted task. Forward Android Delete, which the chooser handles.
++    if (sdl_keycode == SDLK_W) {
++        if (down && ctrl && im->android_alt_down && !shift &&
++                !(mod & (SDL_KMOD_ALT | SDL_KMOD_GUI))) {
++            if (!repeat && !im->ctrl_w_down && !paused && !disconnected) {
++                const uint32_t alt = AMETA_ALT_ON | AMETA_ALT_LEFT_ON;
++                send_recent_apps_key(im, AKEYCODE_DEL, SC_ACTION_DOWN, alt);
++                send_recent_apps_key(im, AKEYCODE_DEL, SC_ACTION_UP, alt);
++            }
++            im->ctrl_w_down = true;
++            return;
++        }
++        if (!down && im->ctrl_w_down) {
++            im->ctrl_w_down = false;
++            return;
++        }
++    }
++
      // Shortcuts that do not involve the MOD key
      switch (sdl_keycode) {
          case SDLK_F11:
-@@ -582,7 +652,7 @@ sc_input_manager_process_key(struct sc_input_manager *im,
+@@ -582,7 +672,7 @@ sc_input_manager_process_key(struct sc_input_manager *im,
                      return;
                  case SDLK_O:
                      if (control && !repeat && down && !paused) {
@@ -109,7 +129,7 @@ index 3b12384..89edbce 100644
                          set_display_power(im, on);
                      }
                      return;
-@@ -1169,6 +1239,9 @@ void
+@@ -1169,6 +1259,9 @@ void
  sc_input_manager_handle_event(struct sc_input_manager *im,
                                const SDL_Event *event) {
      switch (event->type) {
@@ -120,15 +140,16 @@ index 3b12384..89edbce 100644
              sc_input_manager_process_text_input(im, &event->text);
              break;
 diff --git a/app/src/input_manager.h b/app/src/input_manager.h
-index c986cbc..a385753 100644
+index c986cbc..854c3a0 100644
 --- a/app/src/input_manager.h
 +++ b/app/src/input_manager.h
-@@ -31,6 +31,9 @@ struct sc_input_manager {
+@@ -31,6 +31,10 @@ struct sc_input_manager {
      bool clipboard_autosync;
  
      uint16_t sdl_shortcut_mods;
 +    bool display_power_on;
 +    bool ctrl_tab_down;
++    bool ctrl_w_down;
 +    bool android_alt_down;
  
      bool vfinger_down;

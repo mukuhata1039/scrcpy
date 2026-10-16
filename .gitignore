@@ -1,0 +1,11 @@
+# New local backups and diagnostics
+*.bak
+*.bak.*
+*.log
+scrcpy_test_*.txt
+*.tmp
+
+# Local display/application state (already tracked copies remain tracked)
+scrcpy_app_label_cache.txt
+scrcpy_window_state_v5.txt
+scrcpy_main_monitor.txt

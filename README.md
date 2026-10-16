@@ -10,10 +10,14 @@
 - `scrcpy_audible_launcher.exe`：現在のランチャー実行ファイル
 - `scrcpy_media_bridge.py`：再生操作を補助するプログラム
 - `scrcpy.exe` と同じ階層の DLL・`scrcpy-server`・`adb.exe`：scrcpy の実行に必要
-- `patches/scrcpy-v4.1-native-hotkeys.patch`：scrcpy 本体に組み込んだ Alt+O / Ctrl+Tab の変更
+- `patches/scrcpy-v4.1-native-hotkeys.patch`：scrcpy 本体の Alt+O / アプリ切り替え / Ctrl+W の変更
 - `.github/workflows/build-native-hotkeys.yml`：上記パッチから Windows 版をビルドする手順
 
 古い AHK 版や一度きりの修正スクリプトは `archive/` に保存しています。**通常の起動・更新には使いません。**
+
+## ショートカットキー
+
+scrcpy のウィンドウ上で Ctrl を押しながら Tab で次のアプリ、Ctrl+Shift+Tab で前のアプリを選び、Ctrl を離すと切り替えます。選択中に Ctrl+W を押すと、選んでいるアプリを最近使ったアプリの一覧から閉じます。
 
 ## GitHub から取り込む
 
@@ -25,7 +29,7 @@
 git -C 'E:\app\scrcpy-win64-v3.3.1' pull --ff-only
 ```
 
-`pull` は起動中の `.exe` を交換できないため、更新前に scrcpy とランチャーを終了してください。手元のファイルに未コミットの変更があって止まった場合は、上書きせず状況を確認してください。ソース `.cs` の更新だけでは実行ファイル `.exe` は変わりません。ビルドが必要な変更では個別に案内します。**今回の整理だけではビルド不要です。**
+`pull` は起動中の `.exe` を交換できないため、更新前に scrcpy とランチャーを終了してください。手元のファイルに未コミットの変更があって止まった場合は、上書きせず状況を確認してください。ソース `.cs` の更新だけでは実行ファイル `.exe` は変わりません。ビルドが必要な変更では個別に案内します。
 
 ## 接続しないとき
 

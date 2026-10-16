@@ -23,6 +23,14 @@ internal static class Program
     // AHK-free Space -> Android MEDIA_PLAY_PAUSE.
     // Registered only while scrcpy.exe is the foreground application.
     private const uint WM_HOTKEY = 0x0312;
+    private const uint WM_CLOSE = 0x0010;
+    private const uint MOD_ALT = 0x0001;
+    private const uint VK_H = 0x48;
+    private const int TOGGLE_HOTKEY_ID = 0x5344;
+    private const string ToggleListenerMutexName = @"Local\ScrcpyAudibleAltHListener";
+    private const string ToggleListenerStopName = @"Local\ScrcpyAudibleAltHListenerStop";
+    private const string ScrcpyStopName = @"Local\ScrcpyAudibleStop";
+    private const string ToggleStartupLink = "scrcpy Audible Alt+H.lnk";
     private const uint PM_REMOVE = 0x0001;
     private const uint MOD_NOREPEAT = 0x4000;
     private const uint VK_SPACE = 0x20;
@@ -76,19 +84,38 @@ internal static class Program
                 return 0;
             }
 
+            if (args.Any(a => string.Equals(a, "--install-alt-h", StringComparison.OrdinalIgnoreCase)))
+            {
+                InstallToggleHotkey(baseDir, launcherExe, iconPath);
+                return 0;
+            }
+            if (args.Any(a => string.Equals(a, "--remove-alt-h", StringComparison.OrdinalIgnoreCase)))
+            {
+                RemoveToggleHotkey();
+                return 0;
+            }
+            if (args.Any(a => string.Equals(a, "--alt-h-listener", StringComparison.OrdinalIgnoreCase)))
+                return RunToggleHotkeyListener(baseDir, launcherExe);
+
             bool createdNew;
             using (var mutex = new Mutex(true, @"Local\ScrcpyAudibleLauncher", out createdNew))
             {
                 if (!createdNew)
                     return 0;
 
-                for (int attempt = 0; attempt < 2; attempt++)
+                // A second process (the Alt+H listener) asks this exact launcher
+                // to close only its own scrcpy child, never another ADB device.
+                using (var stopEvent = new EventWaitHandle(
+                    false, EventResetMode.AutoReset, ScrcpyStopName))
                 {
-                    int result = RunScrcpy(baseDir, iconPath);
-                    if (result != 2)
-                        return result;
+                    for (int attempt = 0; attempt < 2; attempt++)
+                    {
+                        int result = RunScrcpy(baseDir, iconPath, stopEvent);
+                        if (result != 2)
+                            return result;
 
-                    Thread.Sleep(1500);
+                        Thread.Sleep(1500);
+                    }
                 }
 
                 throw new InvalidOperationException(
@@ -106,6 +133,128 @@ internal static class Program
                 0x10
             );
             return 1;
+        }
+    }
+
+
+    private static void InstallToggleHotkey(
+        string baseDir, string launcherExe, string iconPath)
+    {
+        string startupDir = Environment.GetFolderPath(
+            Environment.SpecialFolder.Startup);
+        string shortcutPath = Path.Combine(startupDir, ToggleStartupLink);
+
+        object obj = new CShellLink();
+        IShellLinkW link = (IShellLinkW)obj;
+        link.SetPath(launcherExe);
+        link.SetArguments("--alt-h-listener");
+        link.SetWorkingDirectory(baseDir);
+        link.SetDescription("Alt+H: toggle OPPO scrcpy");
+        link.SetIconLocation(iconPath, 0);
+        ((IPersistFile)obj).Save(shortcutPath, true);
+
+        // Also make the hotkey available now, without signing out of Windows.
+        var psi = new ProcessStartInfo
+        {
+            FileName = launcherExe,
+            Arguments = "--alt-h-listener",
+            WorkingDirectory = baseDir,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+            WindowStyle = ProcessWindowStyle.Hidden
+        };
+        using (Process listener = Process.Start(psi))
+        {
+            if (listener == null)
+                throw new InvalidOperationException("Alt+H listener could not start.");
+        }
+    }
+
+    private static void RemoveToggleHotkey()
+    {
+        string shortcutPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.Startup),
+            ToggleStartupLink);
+        if (File.Exists(shortcutPath))
+            File.Delete(shortcutPath);
+
+        SignalExistingEvent(ToggleListenerStopName);
+    }
+
+    private static bool SignalExistingEvent(string name)
+    {
+        try
+        {
+            using (EventWaitHandle ev = EventWaitHandle.OpenExisting(name))
+            {
+                ev.Set();
+                return true;
+            }
+        }
+        catch (WaitHandleCannotBeOpenedException)
+        {
+            return false;
+        }
+    }
+
+    private static int RunToggleHotkeyListener(string baseDir, string launcherExe)
+    {
+        bool createdNew;
+        using (var mutex = new Mutex(true, ToggleListenerMutexName, out createdNew))
+        {
+            if (!createdNew)
+                return 0;
+
+            using (var stopEvent = new EventWaitHandle(
+                false, EventResetMode.AutoReset, ToggleListenerStopName))
+            {
+                // RegisterHotKey(NULL, ...) delivers WM_HOTKEY to this thread.
+                MSG ignored;
+                PeekMessageW(out ignored, IntPtr.Zero, 0, 0, 0);
+                if (!RegisterHotKey(IntPtr.Zero, TOGGLE_HOTKEY_ID,
+                    MOD_ALT | MOD_NOREPEAT, VK_H))
+                {
+                    throw new InvalidOperationException(
+                        "Alt+H is already in use by another application.");
+                }
+
+                try
+                {
+                    while (!stopEvent.WaitOne(25))
+                    {
+                        MSG msg;
+                        while (PeekMessageW(out msg, IntPtr.Zero,
+                            WM_HOTKEY, WM_HOTKEY, PM_REMOVE))
+                        {
+                            if (msg.message == WM_HOTKEY &&
+                                msg.wParam.ToUInt64() == (ulong)TOGGLE_HOTKEY_ID)
+                            {
+                                if (!SignalExistingEvent(ScrcpyStopName))
+                                {
+                                    var psi = new ProcessStartInfo
+                                    {
+                                        FileName = launcherExe,
+                                        WorkingDirectory = baseDir,
+                                        UseShellExecute = false,
+                                        CreateNoWindow = true,
+                                        WindowStyle = ProcessWindowStyle.Hidden
+                                    };
+                                    using (Process launched = Process.Start(psi))
+                                    {
+                                        if (launched == null)
+                                            throw new InvalidOperationException(
+                                                "scrcpy launcher could not start.");
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    UnregisterHotKey(IntPtr.Zero, TOGGLE_HOTKEY_ID);
+                }
+            }
         }
     }
 
@@ -253,7 +402,7 @@ internal static class Program
     }
 
 
-    private static int RunScrcpy(string baseDir, string iconPath)
+    private static int RunScrcpy(string baseDir, string iconPath, EventWaitHandle stopEvent)
     {
         string scrcpyExe = Path.Combine(baseDir, "scrcpy.exe");
         string bridgePy = Path.Combine(baseDir, "scrcpy_media_bridge.py");
@@ -418,6 +567,8 @@ internal static class Program
         DateTime windowDeadline = DateTime.UtcNow.AddSeconds(30);
         bool sawWindow = false;
         bool bridgeStarted = false;
+        bool stopRequested = false;
+        bool closePosted = false;
 
         try
         {
@@ -427,7 +578,16 @@ internal static class Program
             // shutdown. Poll by PID instead.
             while (IsProcessAlive(scrcpyPid))
             {
+                if (stopEvent.WaitOne(0))
+                    stopRequested = true;
+
                 IntPtr hwnd = FindTopLevelWindow(scrcpyPid);
+                if (stopRequested && hwnd != IntPtr.Zero && !closePosted)
+                {
+                    // Let scrcpy exit normally so position saving, media pause,
+                    // and the existing cleanup path all still run.
+                    closePosted = PostMessageW(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                }
 
                 if (hwnd == IntPtr.Zero &&
                     !sawWindow &&
@@ -2044,6 +2204,11 @@ internal static class Program
 
     [DllImport("user32.dll")]
     private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool PostMessageW(
+        IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     [DllImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

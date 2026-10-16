@@ -5,13 +5,9 @@ on:
   push:
     branches:
       - review/scrcpy-local-20261002-084544
-      - feature/ctrl-tab-android-recents
     paths:
       - .github/workflows/build-native-hotkeys.yml
       - patches/scrcpy-v4.1-native-hotkeys.patch
-
-permissions:
-  contents: write
 
 jobs:
   win64:
@@ -47,14 +43,3 @@ jobs:
           name: scrcpy-win64-v4.1-native-hotkeys
           path: upstream/release/work/build-win64/dist/
           if-no-files-found: error
-      - name: Save preview client on the feature branch
-        if: github.ref == 'refs/heads/feature/ctrl-tab-android-recents'
-        run: |
-          cp upstream/release/work/build-win64/dist/scrcpy.exe scrcpy.exe
-          git add -- scrcpy.exe
-          if ! git diff --cached --quiet; then
-            git -c user.name='github-actions[bot]' \
-                -c user.email='41898282+github-actions[bot]@users.noreply.github.com' \
-                commit -m 'Build Ctrl+Tab preview scrcpy.exe'
-            git push origin HEAD:feature/ctrl-tab-android-recents
-          fi

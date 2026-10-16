@@ -10,12 +10,15 @@
 - `scrcpy_audible_launcher.exe`：現在のランチャー実行ファイル
 - `scrcpy_media_bridge.py`：再生操作を補助するプログラム
 - `scrcpy.exe` と同じ階層の DLL・`scrcpy-server`・`adb.exe`：scrcpy の実行に必要
-- `patches/scrcpy-v4.1-native-hotkeys.patch`：scrcpy 本体の Alt+O / アプリ切り替え / Ctrl+W の変更
+- `patches/scrcpy-v4.1-native-hotkeys.patch`：scrcpy 本体の Alt+A / Alt+Q / アプリ切り替え / Ctrl+W の変更
 - `.github/workflows/build-native-hotkeys.yml`：上記パッチから Windows 版をビルドする手順
 
 古い AHK 版や一度きりの修正スクリプトは `archive/` に保存しています。**通常の起動・更新には使いません。**
 
 ## ショートカットキー
+
+- Alt+A：OPPO本体の画面をオン・オフ切り替え
+- Alt+Q：Androidのホームへ移動（scrcpyの終了はウィンドウの×を使う）
 
 scrcpy のウィンドウ上で Ctrl を押しながら Tab で次のアプリ、Ctrl+Shift+Tab で前のアプリを選び、Ctrl を離すと切り替えます。選択中に Ctrl+W を押すと、選んでいるアプリを最近使ったアプリの一覧から閉じます。
 

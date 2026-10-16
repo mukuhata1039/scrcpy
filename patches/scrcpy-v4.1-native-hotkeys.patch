@@ -122,7 +122,8 @@ index 3b12384..53096bb 100644
          case SDLK_F11:
 @@ -582,7 +672,7 @@ sc_input_manager_process_key(struct sc_input_manager *im,
                      return;
-                 case SDLK_O:
+-                case SDLK_O:
++                case SDLK_A:
                      if (control && !repeat && down && !paused) {
 -                        bool on = shift;
 +                        bool on = shift || !im->display_power_on;

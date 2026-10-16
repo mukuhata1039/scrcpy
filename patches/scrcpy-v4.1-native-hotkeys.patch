@@ -1,5 +1,5 @@
 diff --git a/app/src/input_manager.c b/app/src/input_manager.c
-index 3b12384..53096bb 100644
+index 3b12384..9b3c754 100644
 --- a/app/src/input_manager.c
 +++ b/app/src/input_manager.c
 @@ -35,6 +35,10 @@ sc_input_manager_init(struct sc_input_manager *im,
@@ -120,7 +120,28 @@ index 3b12384..53096bb 100644
      // Shortcuts that do not involve the MOD key
      switch (sdl_keycode) {
          case SDLK_F11:
-@@ -582,7 +672,7 @@ sc_input_manager_process_key(struct sc_input_manager *im,
+@@ -525,9 +615,6 @@ sc_input_manager_process_key(struct sc_input_manager *im,
+                     switch_fps_counter_state(im);
+                 }
+                 return;
+-            case SDLK_Q:
+-                sc_push_event(SDL_EVENT_QUIT);
+-                return;
+         }
+ 
+         if (disconnected) {
+@@ -554,7 +641,7 @@ sc_input_manager_process_key(struct sc_input_manager *im,
+ 
+         if (control && !im->camera) {
+             switch (sdl_keycode) {
+-                case SDLK_H:
++                case SDLK_Q:
+                     if (im->kp && !shift && !repeat && !paused) {
+                         action_home(im, action);
+                     }
+@@ -580,9 +667,9 @@ sc_input_manager_process_key(struct sc_input_manager *im,
+                         action_power(im, action);
+                     }
                      return;
 -                case SDLK_O:
 +                case SDLK_A:
@@ -130,7 +151,7 @@ index 3b12384..53096bb 100644
                          set_display_power(im, on);
                      }
                      return;
-@@ -1169,6 +1259,9 @@ void
+@@ -1169,6 +1256,9 @@ void
  sc_input_manager_handle_event(struct sc_input_manager *im,
                                const SDL_Event *event) {
      switch (event->type) {

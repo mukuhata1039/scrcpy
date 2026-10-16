@@ -2,7 +2,10 @@ app.shinagawa.listentonovels.androidApp	小説を聞こう - Web小説の読み�
 com.android.chrome	Google Chrome
 com.arlosoft.macrodroid	MacroDroid - デバイス自動化
 com.audible.application	Audible (オーディブル)
+com.azure.authenticator	Microsoft Authenticator
+com.coloros.phonemanager	Phone Manager
 com.google.android.dialer	Google の電話アプリ - 発信者番号と迷惑電話対策
+com.google.android.gms	Google Play開発者サービス
 com.google.android.googlequicksearchbox	Google
 com.google.android.youtube	YouTube
 com.llamalab.automate	Automate

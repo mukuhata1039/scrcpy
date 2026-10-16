@@ -82,7 +82,19 @@ internal static class Program
                 if (!createdNew)
                     return 0;
 
-                return RunScrcpy(baseDir, iconPath);
+                for (int attempt = 0; attempt < 2; attempt++)
+                {
+                    int result = RunScrcpy(baseDir, iconPath);
+                    if (result != 2)
+                        return result;
+
+                    Thread.Sleep(1500);
+                }
+
+                throw new InvalidOperationException(
+                    "scrcpy failed to create a window twice. See " +
+                    Path.Combine(Path.GetTempPath(), "scrcpy_audible_startup.log")
+                );
             }
         }
         catch (Exception ex)
@@ -258,7 +270,8 @@ internal static class Program
         if (!File.Exists(bridgePy))
             throw new FileNotFoundException("scrcpy_media_bridge.py が見つかりません。", bridgePy);
 
-        StartBridgeHidden(baseDir, bridgePy);
+        // Start the media bridge after scrcpy has created its window.
+        // Its persistent adb shell must not compete with scrcpy startup.
 
         // Persistent Android package -> human-readable app label cache.
         // Once an app name has been resolved, later launches can show it
@@ -327,14 +340,34 @@ internal static class Program
             WorkingDirectory = baseDir,
             UseShellExecute = false,
             CreateNoWindow = true,
-            WindowStyle = ProcessWindowStyle.Hidden
+            WindowStyle = ProcessWindowStyle.Hidden,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true
         };
+        scrcpyStart.Arguments += " --verbosity=debug";
+
+        string startupLogPath = Path.Combine(
+            Path.GetTempPath(), "scrcpy_audible_startup.log"
+        );
+        LogScrcpy(startupLogPath, "Starting scrcpy: " + scrcpyStart.Arguments);
 
         Process scrcpy = Process.Start(scrcpyStart);
         if (scrcpy == null)
             throw new InvalidOperationException("scrcpy.exe を起動できませんでした。");
 
         int scrcpyPid = scrcpy.Id;
+        scrcpy.OutputDataReceived += (sender, e) =>
+        {
+            if (e.Data != null)
+                LogScrcpy(startupLogPath, e.Data);
+        };
+        scrcpy.ErrorDataReceived += (sender, e) =>
+        {
+            if (e.Data != null)
+                LogScrcpy(startupLogPath, e.Data);
+        };
+        scrcpy.BeginOutputReadLine();
+        scrcpy.BeginErrorReadLine();
 
         // Keep Space handling in this launcher process.
         // No AutoHotkey and no helper EXE are needed.
@@ -382,6 +415,9 @@ internal static class Program
 
         DateTime nextAndroidTitlePollAt = DateTime.MinValue;
         string lastAndroidTitle = null;
+        DateTime windowDeadline = DateTime.UtcNow.AddSeconds(30);
+        bool sawWindow = false;
+        bool bridgeStarted = false;
 
         try
         {
@@ -393,8 +429,44 @@ internal static class Program
             {
                 IntPtr hwnd = FindTopLevelWindow(scrcpyPid);
 
+                if (hwnd == IntPtr.Zero &&
+                    !sawWindow &&
+                    DateTime.UtcNow >= windowDeadline)
+                {
+                    LogScrcpy(startupLogPath,
+                        "No window after 30 seconds; terminating stalled scrcpy");
+                    try
+                    {
+                        scrcpy.Kill();
+                        scrcpy.WaitForExit(3000);
+                    }
+                    catch (Exception ex)
+                    {
+                        LogScrcpy(startupLogPath, ex.ToString());
+                    }
+
+                    if (IsProcessAlive(scrcpyPid))
+                        throw new InvalidOperationException(
+                            "Stalled scrcpy could not be terminated."
+                        );
+
+                    return 2;
+                }
+
                 if (hwnd != IntPtr.Zero)
                 {
+                    sawWindow = true;
+
+                    if (!bridgeStarted)
+                    {
+                        bridgeStarted = true;
+                        try { StartBridgeHidden(baseDir, bridgePy); }
+                        catch (Exception ex)
+                        {
+                            LogScrcpy(startupLogPath,
+                                "Media bridge failed: " + ex);
+                        }
+                    }
                     if (hwnd != lastHwnd || DateTime.UtcNow < iconRefreshUntil)
                     {
                         ApplyWindowIdentity(hwnd, iconPath);
@@ -590,6 +662,13 @@ internal static class Program
                 }
 
                 Thread.Sleep(300);
+            }
+
+            if (!sawWindow)
+            {
+                LogScrcpy(startupLogPath,
+                    "scrcpy exited before creating a window");
+                return 2;
             }
 
             // Do not overwrite the preferred state while Windows is in
@@ -951,73 +1030,40 @@ internal static class Program
         string baseDir
     )
     {
-        string adbExe = Path.Combine(baseDir, "adb.exe");
+        string output = RunAdbCapture(
+            baseDir,
+            "shell dumpsys window",
+            2000
+        );
 
-        if (!File.Exists(adbExe))
+        if (string.IsNullOrEmpty(output))
             return null;
 
-        try
+        string[] lines = output.Replace("\r", "").Split('\n');
+
+        // Prefer the actual current focus line.
+        foreach (string line in lines)
         {
-            var psi = new ProcessStartInfo
+            if (line.IndexOf(
+                "mCurrentFocus",
+                StringComparison.OrdinalIgnoreCase) >= 0)
             {
-                FileName = adbExe,
-                Arguments = "shell dumpsys window",
-                WorkingDirectory = baseDir,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                WindowStyle = ProcessWindowStyle.Hidden,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true
-            };
-
-            using (Process p = Process.Start(psi))
-            {
-                if (p == null)
-                    return null;
-
-                string output = p.StandardOutput.ReadToEnd();
-                p.WaitForExit(2000);
-
-                if (string.IsNullOrEmpty(output))
-                    return null;
-
-                string[] lines = output.Replace("\r", "")
-                    .Split('\n');
-
-                // Prefer the actual current focus line.
-                foreach (string line in lines)
-                {
-                    if (line.IndexOf(
-                        "mCurrentFocus",
-                        StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        string packageName =
-                            ExtractPackageFromWindowLine(line);
-
-                        if (!string.IsNullOrEmpty(packageName))
-                            return packageName;
-                    }
-                }
-
-                // Fallback used by some Android/OEM versions.
-                foreach (string line in lines)
-                {
-                    if (line.IndexOf(
-                        "mFocusedApp",
-                        StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        string packageName =
-                            ExtractPackageFromWindowLine(line);
-
-                        if (!string.IsNullOrEmpty(packageName))
-                            return packageName;
-                    }
-                }
+                string packageName = ExtractPackageFromWindowLine(line);
+                if (!string.IsNullOrEmpty(packageName))
+                    return packageName;
             }
         }
-        catch
+
+        foreach (string line in lines)
         {
-            // If ADB/device is temporarily unavailable, keep a safe fallback.
+            if (line.IndexOf(
+                "mFocusedApp",
+                StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                string packageName = ExtractPackageFromWindowLine(line);
+                if (!string.IsNullOrEmpty(packageName))
+                    return packageName;
+            }
         }
 
         return null;
@@ -1272,16 +1318,20 @@ internal static class Program
 
             string html;
 
-            using (var client = new WebClient())
-            {
-                client.Encoding = Encoding.UTF8;
-                client.Headers[HttpRequestHeader.UserAgent] =
-                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
-                    "AppleWebKit/537.36 Chrome/120 Safari/537.36";
-                client.Headers[HttpRequestHeader.AcceptLanguage] =
-                    "ja,en-US;q=0.8,en;q=0.6";
+            var request = (HttpWebRequest)WebRequest.Create(url);
+            request.Timeout = 5000;
+            request.ReadWriteTimeout = 5000;
+            request.UserAgent =
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) " +
+                "AppleWebKit/537.36 Chrome/120 Safari/537.36";
+            request.Headers[HttpRequestHeader.AcceptLanguage] =
+                "ja,en-US;q=0.8,en;q=0.6";
 
-                html = client.DownloadString(url);
+            using (var response = (HttpWebResponse)request.GetResponse())
+            using (var reader = new StreamReader(
+                response.GetResponseStream(), Encoding.UTF8))
+            {
+                html = reader.ReadToEnd();
             }
 
             if (string.IsNullOrWhiteSpace(html))
@@ -1419,14 +1469,24 @@ internal static class Program
                 if (p == null)
                     return null;
 
-                string stdout = p.StandardOutput.ReadToEnd();
-                string stderr = p.StandardError.ReadToEnd();
+                // Drain both pipes while waiting. ReadToEnd() before
+                // WaitForExit(timeoutMs) can block forever if ADB hangs.
+                var stdoutTask = p.StandardOutput.ReadToEndAsync();
+                var stderrTask = p.StandardError.ReadToEndAsync();
 
                 if (!p.WaitForExit(timeoutMs))
                 {
                     try { p.Kill(); } catch { }
                     return null;
                 }
+
+                if (!System.Threading.Tasks.Task.WaitAll(
+                    new System.Threading.Tasks.Task[] { stdoutTask, stderrTask },
+                    500))
+                    return null;
+
+                string stdout = stdoutTask.Result;
+                string stderr = stderrTask.Result;
 
                 if (!string.IsNullOrWhiteSpace(stdout))
                     return stdout.Trim();
@@ -1729,7 +1789,29 @@ internal static class Program
         return null;
     }
 
-    private static bool IsProcessAlive(int pid)
+    private static readonly object ScrcpyLogLock = new object();
+
+    private static void LogScrcpy(string path, string message)
+    {
+        try
+        {
+            lock (ScrcpyLogLock)
+            {
+                File.AppendAllText(
+                    path,
+                    DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") +
+                    " " + message + Environment.NewLine,
+                    Encoding.UTF8
+                );
+            }
+        }
+        catch
+        {
+            // Logging must never prevent mirroring.
+        }
+    }
+
+        private static bool IsProcessAlive(int pid)
     {
         try
         {

@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - review/scrcpy-local-20261002-084544
+      - feature/ctrl-tab-android-recents
     paths:
       - .github/workflows/build-native-hotkeys.yml
       - patches/scrcpy-v4.1-native-hotkeys.patch

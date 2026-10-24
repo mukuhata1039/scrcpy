@@ -25,10 +25,6 @@ internal static class Program
     private const uint WM_HOTKEY = 0x0312;
     private const uint WM_CLOSE = 0x0010;
     private const uint MOD_ALT = 0x0001;
-    private const uint MOD_CONTROL = 0x0002;
-    private const uint VK_S = 0x53;
-    private const int MOVE_HOTKEY_ID = 0x5345;
-    private const string ScrcpyMoveName = @"Local\ScrcpyAudibleMoveBottomLeft";
     private const uint VK_H = 0x48;
     private const int TOGGLE_HOTKEY_ID = 0x5344;
     private const string ToggleListenerMutexName = @"Local\ScrcpyAudibleAltHListener";
@@ -111,12 +107,10 @@ internal static class Program
                 // to close only its own scrcpy child, never another ADB device.
                 using (var stopEvent = new EventWaitHandle(
                     false, EventResetMode.AutoReset, ScrcpyStopName))
-                using (var moveEvent = new EventWaitHandle(
-                    false, EventResetMode.AutoReset, ScrcpyMoveName))
                 {
                     for (int attempt = 0; attempt < 2; attempt++)
                     {
-                        int result = RunScrcpy(baseDir, iconPath, stopEvent, moveEvent);
+                        int result = RunScrcpy(baseDir, iconPath, stopEvent);
                         if (result != 2)
                             return result;
 
@@ -224,13 +218,6 @@ internal static class Program
                         "Alt+H is already in use by another application.");
                 }
 
-                if (!RegisterHotKey(IntPtr.Zero, MOVE_HOTKEY_ID,
-                    MOD_ALT | MOD_CONTROL | MOD_NOREPEAT, VK_S))
-                {
-                    UnregisterHotKey(IntPtr.Zero, TOGGLE_HOTKEY_ID);
-                    throw new InvalidOperationException("Ctrl+Alt+S is already in use.");
-                }
-
                 try
                 {
                     while (!stopEvent.WaitOne(25))
@@ -240,11 +227,6 @@ internal static class Program
                             WM_HOTKEY, WM_HOTKEY, PM_REMOVE))
                         {
                             if (msg.message == WM_HOTKEY &&
-                                msg.wParam.ToUInt64() == (ulong)MOVE_HOTKEY_ID)
-                            {
-                                SignalExistingEvent(ScrcpyMoveName);
-                            }
-                            else if (msg.message == WM_HOTKEY &&
                                 msg.wParam.ToUInt64() == (ulong)TOGGLE_HOTKEY_ID)
                             {
                                 if (!SignalExistingEvent(ScrcpyStopName))
@@ -270,7 +252,6 @@ internal static class Program
                 }
                 finally
                 {
-                    UnregisterHotKey(IntPtr.Zero, MOVE_HOTKEY_ID);
                     UnregisterHotKey(IntPtr.Zero, TOGGLE_HOTKEY_ID);
                 }
             }
@@ -422,7 +403,7 @@ internal static class Program
     }
 
 
-    private static int RunScrcpy(string baseDir, string iconPath, EventWaitHandle stopEvent, EventWaitHandle moveEvent)
+    private static int RunScrcpy(string baseDir, string iconPath, EventWaitHandle stopEvent)
     {
         string scrcpyExe = Path.Combine(baseDir, "scrcpy.exe");
         string bridgePy = Path.Combine(baseDir, "scrcpy_media_bridge.py");
@@ -602,11 +583,6 @@ internal static class Program
                     stopRequested = true;
 
                 IntPtr hwnd = FindTopLevelWindow(scrcpyPid);
-                if (hwnd != IntPtr.Zero && moveEvent.WaitOne(0))
-                {
-                    MoveWindowToPrimaryBottomLeft(hwnd);
-                    nextPreferredStateSaveAt = DateTime.UtcNow.AddMilliseconds(1000);
-                }
                 if (stopRequested && hwnd != IntPtr.Zero && !closePosted)
                 {
                     // Let scrcpy exit normally so position saving, media pause,
@@ -2017,36 +1993,6 @@ internal static class Program
         {
             return false;
         }
-    }
-
-    private static void MoveWindowToPrimaryBottomLeft(IntPtr hwnd)
-    {
-        // Use the primary display work area, excluding any taskbar.
-        string primaryDevice = GetCurrentPrimaryMonitorDevice();
-        if (string.IsNullOrEmpty(primaryDevice))
-            return;
-        EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero,
-            (IntPtr monitor, IntPtr hdc, ref RECT bounds, IntPtr data) =>
-            {
-                MONITORINFOEX info = new MONITORINFOEX();
-                info.cbSize = Marshal.SizeOf(typeof(MONITORINFOEX));
-                if (!GetMonitorInfoExW(monitor, ref info) ||
-                    !string.Equals(info.szDevice, primaryDevice, StringComparison.OrdinalIgnoreCase))
-                    return true;
-                RECT window;
-                if (GetWindowRect(hwnd, out window))
-                {
-                    int width = window.Right - window.Left;
-                    int height = window.Bottom - window.Top;
-                    int x = info.rcWork.Left;
-                    int y = info.rcWork.Bottom - height;
-                    // Keep the title bar reachable even if the window is too tall.
-                    y = Math.Max(info.rcWork.Top, y);
-                    SetWindowPos(hwnd, IntPtr.Zero, x, y, 0, 0,
-                        SWP_NOSIZE | SWP_NOZORDER);
-                }
-                return false;
-            }, IntPtr.Zero);
     }
 
     private static IntPtr FindTopLevelWindow(int pid)

@@ -236,9 +236,34 @@ def move_scrcpy_bottom_left():
     rect = RECT()
     if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
         return
-    height = rect.bottom - rect.top
-    x = info.rcWork.left
-    y = max(info.rcWork.top, info.rcWork.bottom - height)
+    # GetWindowRect includes an invisible resize border on Windows 10/11.
+    # Align the *visible* DWM frame with the work area instead.
+    visible = RECT()
+    have_visible = False
+    try:
+        dwmapi = ctypes.WinDLL("dwmapi")
+        dwmapi.DwmGetWindowAttribute.argtypes = [
+            wintypes.HWND, wintypes.DWORD, ctypes.c_void_p, wintypes.DWORD,
+        ]
+        dwmapi.DwmGetWindowAttribute.restype = ctypes.c_long
+        DWMWA_EXTENDED_FRAME_BOUNDS = 9
+        have_visible = dwmapi.DwmGetWindowAttribute(
+            hwnd, DWMWA_EXTENDED_FRAME_BOUNDS,
+            ctypes.byref(visible), ctypes.sizeof(visible),
+        ) == 0 and visible.right > visible.left and visible.bottom > visible.top
+    except OSError:
+        pass
+
+    if have_visible:
+        x = rect.left + info.rcWork.left - visible.left
+        y = rect.top + info.rcWork.bottom - visible.bottom
+        # Do not move the visible title bar above the available desktop.
+        y = max(y, rect.top + info.rcWork.top - visible.top)
+    else:
+        height = rect.bottom - rect.top
+        x = info.rcWork.left
+        y = max(info.rcWork.top, info.rcWork.bottom - height)
+
     if not user32.SetWindowPos(
         hwnd, None, x, y, 0, 0,
         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,

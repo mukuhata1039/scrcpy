@@ -115,13 +115,12 @@ def scrcpy_is_running():
 
 
 
-# Ctrl+Alt+S: return the OPPO scrcpy window to the lower-left corner of the
+# Alt+S: return the OPPO scrcpy window to the lower-left corner of the
 # Windows primary monitor work area (the taskbar is excluded).
 # This runs inside the existing media bridge, so no launcher EXE rebuild,
 # additional program, or startup shortcut is necessary.
 WM_HOTKEY = 0x0312
 MOD_ALT = 0x0001
-MOD_CONTROL = 0x0002
 MOD_NOREPEAT = 0x4000
 VK_S = 0x53
 MOVE_HOTKEY_ID = 0x5345
@@ -223,13 +222,13 @@ def find_oppo_scrcpy_window():
 def move_scrcpy_bottom_left():
     hwnd = find_oppo_scrcpy_window()
     if hwnd is None:
-        logging.warning("Ctrl+Alt+S: OPPO scrcpy window not uniquely identified")
+        logging.warning("Alt+S: OPPO scrcpy window not uniquely identified")
         return
     monitor = user32.MonitorFromPoint(POINT(0, 0), MONITOR_DEFAULTTOPRIMARY)
     info = MONITORINFO()
     info.cbSize = ctypes.sizeof(info)
     if not monitor or not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
-        logging.warning("Ctrl+Alt+S: primary monitor work area unavailable")
+        logging.warning("Alt+S: primary monitor work area unavailable")
         return
 
     user32.ShowWindow(hwnd, SW_RESTORE)
@@ -268,15 +267,15 @@ def move_scrcpy_bottom_left():
         hwnd, None, x, y, 0, 0,
         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
     ):
-        logging.error("Ctrl+Alt+S: SetWindowPos failed: %s", ctypes.get_last_error())
+        logging.error("Alt+S: SetWindowPos failed: %s", ctypes.get_last_error())
 
 
 def run_move_hotkey():
     # Dedicated thread message queue: RegisterHotKey works even when the
     # scrcpy window is off-screen and has no keyboard focus.
     if not user32.RegisterHotKey(None, MOVE_HOTKEY_ID,
-                                 MOD_ALT | MOD_CONTROL | MOD_NOREPEAT, VK_S):
-        logging.error("Ctrl+Alt+S could not be registered: %s", ctypes.get_last_error())
+                                 MOD_ALT | MOD_NOREPEAT, VK_S):
+        logging.error("Alt+S could not be registered: %s", ctypes.get_last_error())
         return
     try:
         msg = MSG()
@@ -285,7 +284,7 @@ def run_move_hotkey():
                 try:
                     move_scrcpy_bottom_left()
                 except Exception:
-                    logging.exception("Ctrl+Alt+S move failed")
+                    logging.exception("Alt+S move failed")
     finally:
         user32.UnregisterHotKey(None, MOVE_HOTKEY_ID)
 

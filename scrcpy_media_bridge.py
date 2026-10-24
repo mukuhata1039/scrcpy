@@ -2,6 +2,7 @@
 import ctypes
 from ctypes import wintypes
 import logging
+import threading
 from pathlib import Path
 import queue
 import shutil
@@ -111,6 +112,160 @@ def scrcpy_is_running():
         return '"scrcpy.exe"' in cp.stdout.lower()
     except Exception:
         return True
+
+
+
+# Ctrl+Alt+S: return the OPPO scrcpy window to the lower-left corner of the
+# Windows primary monitor work area (the taskbar is excluded).
+# This runs inside the existing media bridge, so no launcher EXE rebuild,
+# additional program, or startup shortcut is necessary.
+WM_HOTKEY = 0x0312
+MOD_ALT = 0x0001
+MOD_CONTROL = 0x0002
+MOD_NOREPEAT = 0x4000
+VK_S = 0x53
+MOVE_HOTKEY_ID = 0x5345
+MONITOR_DEFAULTTOPRIMARY = 1
+SW_RESTORE = 9
+SWP_NOSIZE = 0x0001
+SWP_NOZORDER = 0x0004
+SWP_NOACTIVATE = 0x0010
+
+
+class RECT(ctypes.Structure):
+    _fields_ = [(name, ctypes.c_long) for name in ("left", "top", "right", "bottom")]
+
+
+class POINT(ctypes.Structure):
+    _fields_ = [("x", ctypes.c_long), ("y", ctypes.c_long)]
+
+
+class MONITORINFO(ctypes.Structure):
+    _fields_ = [
+        ("cbSize", wintypes.DWORD),
+        ("rcMonitor", RECT),
+        ("rcWork", RECT),
+        ("dwFlags", wintypes.DWORD),
+    ]
+
+
+class MSG(ctypes.Structure):
+    _fields_ = [
+        ("hwnd", wintypes.HWND),
+        ("message", wintypes.UINT),
+        ("wParam", wintypes.WPARAM),
+        ("lParam", wintypes.LPARAM),
+        ("time", wintypes.DWORD),
+        ("pt", POINT),
+        ("lPrivate", wintypes.DWORD),
+    ]
+
+
+user32.RegisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int, wintypes.UINT, wintypes.UINT]
+user32.RegisterHotKey.restype = wintypes.BOOL
+user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.UnregisterHotKey.restype = wintypes.BOOL
+user32.GetMessageW.argtypes = [ctypes.POINTER(MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
+user32.GetMessageW.restype = ctypes.c_int
+user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
+user32.EnumWindows.restype = wintypes.BOOL
+user32.IsWindowVisible.argtypes = [wintypes.HWND]
+user32.IsWindowVisible.restype = wintypes.BOOL
+user32.MonitorFromPoint.argtypes = [POINT, wintypes.DWORD]
+user32.MonitorFromPoint.restype = wintypes.HANDLE
+user32.GetMonitorInfoW.argtypes = [wintypes.HANDLE, ctypes.POINTER(MONITORINFO)]
+user32.GetMonitorInfoW.restype = wintypes.BOOL
+user32.GetWindowRect.argtypes = [wintypes.HWND, ctypes.POINTER(RECT)]
+user32.GetWindowRect.restype = wintypes.BOOL
+user32.ShowWindow.argtypes = [wintypes.HWND, ctypes.c_int]
+user32.ShowWindow.restype = wintypes.BOOL
+user32.SetWindowPos.argtypes = [
+    wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+    ctypes.c_int, ctypes.c_int, wintypes.UINT,
+]
+user32.SetWindowPos.restype = wintypes.BOOL
+
+_WINDOW_ENUM_PROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+
+
+def find_oppo_scrcpy_window():
+    # Match the executable in the same directory as this bridge, not unrelated
+    # scrcpy instances started from other installations.
+    expected = (APP_DIR / "scrcpy.exe").resolve()
+    windows = []
+
+    @_WINDOW_ENUM_PROC
+    def visit(hwnd, unused):
+        if not user32.IsWindowVisible(hwnd):
+            return True
+        pid = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if not pid.value:
+            return True
+        handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid.value)
+        if not handle:
+            return True
+        try:
+            name = ctypes.create_unicode_buffer(32768)
+            length = wintypes.DWORD(len(name))
+            if kernel32.QueryFullProcessImageNameW(handle, 0, name, ctypes.byref(length)):
+                if Path(name.value).resolve() == expected:
+                    windows.append(hwnd)
+        finally:
+            kernel32.CloseHandle(handle)
+        return True
+
+    user32.EnumWindows(visit, 0)
+    # Never move another window if more than one instance is ambiguous.
+    return windows[0] if len(windows) == 1 else None
+
+
+def move_scrcpy_bottom_left():
+    hwnd = find_oppo_scrcpy_window()
+    if hwnd is None:
+        logging.warning("Ctrl+Alt+S: OPPO scrcpy window not uniquely identified")
+        return
+    monitor = user32.MonitorFromPoint(POINT(0, 0), MONITOR_DEFAULTTOPRIMARY)
+    info = MONITORINFO()
+    info.cbSize = ctypes.sizeof(info)
+    if not monitor or not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
+        logging.warning("Ctrl+Alt+S: primary monitor work area unavailable")
+        return
+
+    user32.ShowWindow(hwnd, SW_RESTORE)
+    rect = RECT()
+    if not user32.GetWindowRect(hwnd, ctypes.byref(rect)):
+        return
+    height = rect.bottom - rect.top
+    x = info.rcWork.left
+    y = max(info.rcWork.top, info.rcWork.bottom - height)
+    if not user32.SetWindowPos(
+        hwnd, None, x, y, 0, 0,
+        SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+    ):
+        logging.error("Ctrl+Alt+S: SetWindowPos failed: %s", ctypes.get_last_error())
+
+
+def run_move_hotkey():
+    # Dedicated thread message queue: RegisterHotKey works even when the
+    # scrcpy window is off-screen and has no keyboard focus.
+    if not user32.RegisterHotKey(None, MOVE_HOTKEY_ID,
+                                 MOD_ALT | MOD_CONTROL | MOD_NOREPEAT, VK_S):
+        logging.error("Ctrl+Alt+S could not be registered: %s", ctypes.get_last_error())
+        return
+    try:
+        msg = MSG()
+        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
+            if msg.message == WM_HOTKEY and msg.wParam == MOVE_HOTKEY_ID:
+                try:
+                    move_scrcpy_bottom_left()
+                except Exception:
+                    logging.exception("Ctrl+Alt+S move failed")
+    finally:
+        user32.UnregisterHotKey(None, MOVE_HOTKEY_ID)
+
+
+threading.Thread(target=run_move_hotkey, name="ScrcpyMoveHotkey", daemon=True).start()
 
 
 def ensure_silent_wav():

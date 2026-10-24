@@ -19,7 +19,7 @@
 
 - Alt+A：OPPO本体の画面をオン・オフ切り替え
 - Alt+Q：Androidのホームへ移動（scrcpyの終了はウィンドウの×を使う）
-- Ctrl+Alt+S：scrcpyのウィンドウをメインモニター左下へ移動（タスクバーの作業領域を避け、サイズは維持）。既存のPythonメディアブリッジ内で処理するためEXEの再ビルド不要。`git pull --ff-only` の後にscrcpyを再起動すれば有効。
+- Alt+S：scrcpyのウィンドウをメインモニター左下へ移動（タスクバーの作業領域を避け、サイズは維持）。既存のPythonメディアブリッジ内で処理するためEXEの再ビルド不要。`git pull --ff-only` の後にscrcpyを再起動すれば有効。
 
 scrcpy のウィンドウ上で Ctrl を押しながら Tab で次のアプリ、Ctrl+Shift+Tab で前のアプリを選び、Ctrl を離すと切り替えます。選択中に Ctrl+W を押すと、選んでいるアプリを最近使ったアプリの一覧から閉じます。
 

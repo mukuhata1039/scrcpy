@@ -115,15 +115,21 @@ def scrcpy_is_running():
 
 
 
-# Alt+S: return the OPPO scrcpy window to the lower-left corner of the
+# Alt+D: return the OPPO scrcpy window to the lower-left corner of the
 # Windows primary monitor work area (the taskbar is excluded).
 # This runs inside the existing media bridge, so no launcher EXE rebuild,
 # additional program, or startup shortcut is necessary.
 WM_HOTKEY = 0x0312
 MOD_ALT = 0x0001
 MOD_NOREPEAT = 0x4000
+VK_D = 0x44
+VK_W = 0x57
 VK_S = 0x53
 MOVE_HOTKEY_ID = 0x5345
+VOLUME_UP_HOTKEY_ID = 0x5346
+VOLUME_DOWN_HOTKEY_ID = 0x5347
+PM_REMOVE = 0x0001
+_volume_hotkey_events = queue.Queue()
 MONITOR_DEFAULTTOPRIMARY = 1
 SW_RESTORE = 9
 SWP_NOSIZE = 0x0001
@@ -166,6 +172,10 @@ user32.UnregisterHotKey.argtypes = [wintypes.HWND, ctypes.c_int]
 user32.UnregisterHotKey.restype = wintypes.BOOL
 user32.GetMessageW.argtypes = [ctypes.POINTER(MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT]
 user32.GetMessageW.restype = ctypes.c_int
+user32.PeekMessageW.argtypes = [
+    ctypes.POINTER(MSG), wintypes.HWND, wintypes.UINT, wintypes.UINT, wintypes.UINT,
+]
+user32.PeekMessageW.restype = wintypes.BOOL
 user32.EnumWindows.argtypes = [ctypes.c_void_p, wintypes.LPARAM]
 user32.EnumWindows.restype = wintypes.BOOL
 user32.IsWindowVisible.argtypes = [wintypes.HWND]
@@ -222,13 +232,13 @@ def find_oppo_scrcpy_window():
 def move_scrcpy_bottom_left():
     hwnd = find_oppo_scrcpy_window()
     if hwnd is None:
-        logging.warning("Alt+S: OPPO scrcpy window not uniquely identified")
+        logging.warning("Alt+D: OPPO scrcpy window not uniquely identified")
         return
     monitor = user32.MonitorFromPoint(POINT(0, 0), MONITOR_DEFAULTTOPRIMARY)
     info = MONITORINFO()
     info.cbSize = ctypes.sizeof(info)
     if not monitor or not user32.GetMonitorInfoW(monitor, ctypes.byref(info)):
-        logging.warning("Alt+S: primary monitor work area unavailable")
+        logging.warning("Alt+D: primary monitor work area unavailable")
         return
 
     user32.ShowWindow(hwnd, SW_RESTORE)
@@ -267,25 +277,57 @@ def move_scrcpy_bottom_left():
         hwnd, None, x, y, 0, 0,
         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
     ):
-        logging.error("Alt+S: SetWindowPos failed: %s", ctypes.get_last_error())
+        logging.error("Alt+D: SetWindowPos failed: %s", ctypes.get_last_error())
 
 
 def run_move_hotkey():
-    # Dedicated thread message queue: RegisterHotKey works even when the
-    # scrcpy window is off-screen and has no keyboard focus.
+    # Alt+D stays global, allowing recovery when scrcpy is off-screen.
+    # Alt+W/Alt+S are registered ONLY while scrcpy is foreground;
+    # other applications retain their own keyboard shortcuts.
     if not user32.RegisterHotKey(None, MOVE_HOTKEY_ID,
-                                 MOD_ALT | MOD_NOREPEAT, VK_S):
-        logging.error("Alt+S could not be registered: %s", ctypes.get_last_error())
+                                 MOD_ALT | MOD_NOREPEAT, VK_D):
+        logging.error("Alt+D could not be registered: %s", ctypes.get_last_error())
         return
+    registered_volume = []
     try:
         msg = MSG()
-        while user32.GetMessageW(ctypes.byref(msg), None, 0, 0) > 0:
-            if msg.message == WM_HOTKEY and msg.wParam == MOVE_HOTKEY_ID:
-                try:
-                    move_scrcpy_bottom_left()
-                except Exception:
-                    logging.exception("Alt+S move failed")
+        while True:
+            foreground = scrcpy_is_foreground()
+            if foreground and not registered_volume:
+                for hotkey_id, key in (
+                    (VOLUME_UP_HOTKEY_ID, VK_W),
+                    (VOLUME_DOWN_HOTKEY_ID, VK_S),
+                ):
+                    if user32.RegisterHotKey(
+                        None, hotkey_id, MOD_ALT | MOD_NOREPEAT, key
+                    ):
+                        registered_volume.append(hotkey_id)
+                    else:
+                        logging.warning("Volume hotkey %s unavailable: %s",
+                                        hotkey_id, ctypes.get_last_error())
+            elif not foreground and registered_volume:
+                for hotkey_id in registered_volume:
+                    user32.UnregisterHotKey(None, hotkey_id)
+                registered_volume.clear()
+
+            while user32.PeekMessageW(
+                ctypes.byref(msg), None, WM_HOTKEY, WM_HOTKEY, PM_REMOVE
+            ):
+                if msg.message != WM_HOTKEY:
+                    continue
+                if msg.wParam == MOVE_HOTKEY_ID:
+                    try:
+                        move_scrcpy_bottom_left()
+                    except Exception:
+                        logging.exception("Alt+D move failed")
+                elif foreground and msg.wParam == VOLUME_UP_HOTKEY_ID:
+                    _volume_hotkey_events.put(24)  # Android VOLUME_UP
+                elif foreground and msg.wParam == VOLUME_DOWN_HOTKEY_ID:
+                    _volume_hotkey_events.put(25)  # Android VOLUME_DOWN
+            time.sleep(0.04)
     finally:
+        for hotkey_id in registered_volume:
+            user32.UnregisterHotKey(None, hotkey_id)
         user32.UnregisterHotKey(None, MOVE_HOTKEY_ID)
 
 
@@ -515,6 +557,24 @@ def poll_media_events():
 
 
 
+def poll_volume_hotkeys():
+    # All writes to the persistent ADB shell run on Tk's main thread,
+    # together with the existing media commands.
+    while True:
+        try:
+            keycode = _volume_hotkey_events.get_nowait()
+        except queue.Empty:
+            break
+        if ensure_adb_shell():
+            try:
+                adb_shell_proc.stdin.write("input keyevent {}\\n".format(keycode))
+                adb_shell_proc.stdin.flush()
+            except Exception:
+                logging.exception("Failed to send Android volume key")
+                close_adb_shell()
+    root.after(40, poll_volume_hotkeys)
+
+
 def poll_hotkey_commands():
     # AutoHotkey only appends a tiny line to this temp file.
     # No adb.exe or console process is started when Space is pressed.
@@ -595,5 +655,6 @@ ensure_adb_shell()
 root.after(100, poll_foreground)
 root.after(40, poll_media_events)
 root.after(10, poll_hotkey_commands)
+root.after(40, poll_volume_hotkeys)
 root.after(500, poll_scrcpy_lifetime)
 root.mainloop()

@@ -567,7 +567,7 @@ def poll_volume_hotkeys():
             break
         if ensure_adb_shell():
             try:
-                adb_shell_proc.stdin.write("input keyevent {}\\n".format(keycode))
+                adb_shell_proc.stdin.write("input keyevent {}\n".format(keycode))
                 adb_shell_proc.stdin.flush()
             except Exception:
                 logging.exception("Failed to send Android volume key")

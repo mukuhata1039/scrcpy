@@ -443,7 +443,7 @@ internal static class Program
         string options =
             "--max-size=1100 " +
             "--turn-screen-off " +
-            "--stay-awake";
+            "--keep-active";
 
         int savedX;
         int savedY;
